@@ -1,0 +1,586 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider          = "mysql"
+  url               = env("DATABASE_URL")
+  shadowDatabaseUrl = env("SHADOW_DATABASE_URL")
+}
+
+model SalesRep {
+  id           Int            @id @default(autoincrement())
+  name         String
+  email        String         @unique
+  phoneNumber  String         @unique
+  password     String
+  countryId    Int
+  region_id    Int
+  region       String
+  role         String?        @default("USER")
+  status       Int?           @default(0)
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+  photoUrl     String?        @default("")
+  journeyPlans JourneyPlan[]
+  LoginHistory LoginHistory[]
+  MyOrder      MyOrder[]
+  reports      Report[]
+  country      Country        @relation(fields: [countryId], references: [id])
+  tokens       Token[]
+  leaves       Leave[]
+  Manager      Manager?
+
+  @@index([countryId], map: "SalesRep_countryId_fkey")
+  UpliftSale UpliftSale[]
+}
+
+model LoginHistory {
+  id         Int       @id @default(autoincrement())
+  userId     Int
+  loginAt    DateTime  @default(now())
+  logoutAt   DateTime?
+  isLate     Boolean?  @default(false)
+  isEarly    Boolean?  @default(false)
+  timezone   String?   @default("UTC")
+  shiftStart DateTime?
+  shiftEnd   DateTime?
+  duration   Int?
+  status     String?   @default("ACTIVE")
+  user       SalesRep  @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([loginAt])
+  @@index([logoutAt])
+}
+
+model Manager {
+  id         Int              @id @default(autoincrement())
+  userId     Int              @unique
+  department String?
+  checkins   ManagerCheckin[]
+  user       SalesRep         @relation(fields: [userId], references: [id])
+
+  @@map("managers")
+}
+
+model Token {
+  id          Int       @id @default(autoincrement())
+  token       String
+  salesRepId  Int
+  createdAt   DateTime  @default(now())
+  expiresAt   DateTime
+  blacklisted Boolean   @default(false)
+  lastUsedAt  DateTime?
+  user        SalesRep  @relation(fields: [salesRepId], references: [id])
+
+  @@index([salesRepId], map: "Token_userId_fkey")
+  @@index([blacklisted])
+  @@index([lastUsedAt])
+}
+
+model Regions {
+  id        Int      @id @default(autoincrement())
+  name      String
+  countryId Int
+  status    Int?     @default(0)
+  country   Country  @relation(fields: [countryId], references: [id])
+  Stores    Stores[]
+
+  @@unique([name, countryId])
+  @@index([countryId], map: "Regions_countryId_fkey")
+}
+
+model Country {
+  id       Int        @id @default(autoincrement())
+  name     String
+  status   Int?       @default(0)
+  clients  Clients[]
+  regions  Regions[]
+  salesRep SalesRep[]
+}
+
+model Category {
+  id           Int           @id @default(autoincrement())
+  name         String
+  priceOptions PriceOption[]
+}
+
+model PriceOption {
+  id         Int         @id @default(autoincrement())
+  option     String
+  value      Int
+  categoryId Int
+  orderItems OrderItem[]
+  category   Category    @relation(fields: [categoryId], references: [id])
+
+  @@index([categoryId], map: "PriceOption_categoryId_fkey")
+}
+
+model StoreQuantity {
+  id        Int     @id @default(autoincrement())
+  quantity  Int
+  storeId   Int
+  productId Int
+  product   Product @relation(fields: [productId], references: [id])
+  store     Stores  @relation(fields: [storeId], references: [id])
+
+  @@index([productId], map: "StoreQuantity_productId_fkey")
+  @@index([storeId], map: "StoreQuantity_storeId_fkey")
+}
+
+model Stores {
+  id              Int               @id @default(autoincrement())
+  name            String
+  regionId        Int?
+  client_type     Int?
+  countryId       Int
+  region_id       Int?
+  status          Int               @default(0)
+  ProductDetails  ProductDetails[]
+  purchase        Purchase[]
+  purchaseHistory PurchaseHistory[]
+  storeQuantities StoreQuantity[]
+  region          Regions?          @relation(fields: [regionId], references: [id])
+  transfersFrom   TransferHistory[] @relation("FromStore")
+  transfersTo     TransferHistory[] @relation("ToStore")
+
+  @@index([regionId], map: "Stores_regionId_fkey")
+}
+
+model Product {
+  id              Int               @id @default(autoincrement())
+  name            String
+  category_id     Int
+  category        String
+  description     String?
+  currentStock    Int?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  clientId        Int?
+  image           String?           @default("")
+  orderItems      OrderItem[]
+  client          Clients?          @relation(fields: [clientId], references: [id])
+  ProductDetails  ProductDetails[]
+  purchaseHistory PurchaseHistory[]
+  PurchaseItem    PurchaseItem[]
+  storeQuantities StoreQuantity[]
+  TransferHistory TransferHistory[]
+
+  @@index([clientId], map: "Product_clientId_fkey")
+  UpliftSaleItem UpliftSaleItem[]
+}
+
+model TransferHistory {
+  id            Int      @id @default(autoincrement())
+  productId     Int
+  fromStoreId   Int
+  toStoreId     Int
+  quantity      Int
+  transferredAt DateTime @default(now())
+  fromStore     Stores   @relation("FromStore", fields: [fromStoreId], references: [id])
+  product       Product  @relation(fields: [productId], references: [id])
+  toStore       Stores   @relation("ToStore", fields: [toStoreId], references: [id])
+
+  @@index([fromStoreId], map: "TransferHistory_fromStoreId_fkey")
+  @@index([productId], map: "TransferHistory_productId_fkey")
+  @@index([toStoreId], map: "TransferHistory_toStoreId_fkey")
+}
+
+model ProductDetails {
+  id          Int      @id @default(autoincrement())
+  productId   Int
+  date        DateTime @default(now())
+  reference   String
+  quantityIn  Int
+  quantityOut Int
+  newBalance  Int
+  storeId     Int
+  product     Product  @relation(fields: [productId], references: [id])
+  store       Stores   @relation(fields: [storeId], references: [id])
+
+  @@index([productId], map: "ProductDetails_productId_fkey")
+  @@index([storeId], map: "ProductDetails_storeId_fkey")
+}
+
+model Purchase {
+  id              Int               @id @default(autoincrement())
+  storeId         Int
+  date            DateTime          @default(now())
+  supplierId      Int
+  totalAmount     Int
+  store           Stores            @relation(fields: [storeId], references: [id])
+  supplier        Suppliers         @relation(fields: [supplierId], references: [id])
+  items           PurchaseItem[]
+  SupplierHistory SupplierHistory[]
+
+  @@index([storeId], map: "Purchase_storeId_fkey")
+  @@index([supplierId], map: "Purchase_supplierId_fkey")
+}
+
+model PurchaseItem {
+  id         Int      @id @default(autoincrement())
+  purchaseId Int
+  productId  Int
+  quantity   Int
+  price      Float
+  product    Product  @relation(fields: [productId], references: [id])
+  purchase   Purchase @relation(fields: [purchaseId], references: [id])
+
+  @@index([productId], map: "PurchaseItem_productId_fkey")
+  @@index([purchaseId], map: "PurchaseItem_purchaseId_fkey")
+}
+
+model PurchaseHistory {
+  id               Int      @id @default(autoincrement())
+  storeId          Int
+  productId        Int
+  previousQuantity Int
+  purchaseQuantity Int
+  newBalance       Int
+  createdAt        DateTime @default(now())
+  product          Product  @relation(fields: [productId], references: [id])
+  store            Stores   @relation(fields: [storeId], references: [id])
+
+  @@index([productId], map: "PurchaseHistory_productId_fkey")
+  @@index([storeId], map: "PurchaseHistory_storeId_fkey")
+}
+
+model Clients {
+  id            Int              @id @default(autoincrement())
+  name          String
+  address       String?
+  latitude      Float?
+  longitude     Float?
+  balance       String?
+  email         String?
+  region_id     Int
+  region        String
+  contact       String
+  tax_pin       String
+  location      String
+  status        Int              @default(0)
+  client_type   Int?
+  countryId     Int
+  ClientPayment ClientPayment[]
+  country       Country          @relation(fields: [countryId], references: [id])
+  journeyPlans  JourneyPlan[]
+  checkins      ManagerCheckin[]
+  MyOrder       MyOrder[]
+  products      Product[]
+  reports       Report[]
+
+  @@index([countryId], map: "Clients_countryId_fkey")
+  UpliftSale UpliftSale[]
+}
+
+model ClientPayment {
+  id       Int      @id @default(autoincrement())
+  clientId Int
+  amount   Float
+  imageUrl String?
+  date     DateTime @default(now())
+  status   String?
+  client   Clients  @relation(fields: [clientId], references: [id])
+
+  @@index([clientId], map: "ClientPayment_clientId_fkey")
+}
+
+model Riders {
+  id            Int     @id @default(autoincrement())
+  name          String
+  contact       String
+  id_number     String
+  company_id    Int
+  company       String
+  status        Int?
+  password      String?
+  device_id     String?
+  device_name   String?
+  device_status String?
+  token         String?
+}
+
+model RidersCompany {
+  id     Int    @id @default(autoincrement())
+  name   String
+  status Int?
+}
+
+model ManagerCheckin {
+  id                Int       @id @default(autoincrement())
+  managerId         Int
+  clientId          Int
+  date              DateTime
+  checkInAt         DateTime?
+  checkOutAt        DateTime?
+  latitude          Float?
+  longitude         Float?
+  notes             String?
+  checkoutLatitude  Float?
+  checkoutLongitude Float?
+  imageUrl          String?
+  status            String?
+  timezone          String?
+  visitDuration     Int?
+  visitNumber       Int?
+  client            Clients   @relation(fields: [clientId], references: [id])
+  manager           Manager   @relation(fields: [managerId], references: [id])
+
+  @@index([managerId])
+  @@index([clientId])
+}
+
+model OrderItem {
+  id            Int          @id @default(autoincrement())
+  orderId       Int
+  productId     Int
+  quantity      Int
+  priceOptionId Int?
+  order         MyOrder      @relation(fields: [orderId], references: [id])
+  priceOption   PriceOption? @relation(fields: [priceOptionId], references: [id])
+  product       Product      @relation(fields: [productId], references: [id])
+
+  @@unique([orderId, productId, priceOptionId])
+  @@index([orderId])
+  @@index([priceOptionId])
+  @@index([productId], map: "OrderItem_productId_fkey")
+}
+
+model MyOrder {
+  id                 Int         @id @default(autoincrement())
+  totalAmount        Float
+  comment            String
+  customerType       String
+  customerId         String
+  customerName       String
+  orderDate          DateTime    @default(now())
+  riderId            Int?
+  riderName          String?
+  status             Int         @default(0)
+  approvedTime       String?
+  dispatchTime       String?
+  deliveryLocation   String?
+  complete_latitude  String?
+  complete_longitude String?
+  complete_address   String?
+  pickupTime         String?
+  deliveryTime       String?
+  cancel_reason      String?
+  recepient          String?
+  userId             Int
+  clientId           Int
+  createdAt          DateTime    @default(now())
+  updatedAt          DateTime    @updatedAt
+  client             Clients     @relation(fields: [clientId], references: [id])
+  user               SalesRep    @relation(fields: [userId], references: [id])
+  orderItems         OrderItem[]
+  reports            Report[]    @relation("MyOrderToReport")
+
+  @@index([userId])
+  @@index([clientId])
+}
+
+model JourneyPlan {
+  id                Int       @id @default(autoincrement())
+  date              DateTime
+  time              String
+  userId            Int?
+  clientId          Int
+  status            Int       @default(0)
+  checkInTime       DateTime?
+  latitude          Float?
+  longitude         Float?
+  imageUrl          String?
+  notes             String?
+  checkoutLatitude  Float?
+  checkoutLongitude Float?
+  checkoutTime      DateTime?
+  client            Clients   @relation(fields: [clientId], references: [id])
+  user              SalesRep? @relation(fields: [userId], references: [id])
+  reports           Report[]
+
+  @@index([clientId])
+  @@index([userId])
+}
+
+model NoticeBoard {
+  id        Int      @id @default(autoincrement())
+  title     String
+  content   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Report {
+  id               Int               @id @default(autoincrement())
+  orderId          Int?
+  clientId         Int
+  createdAt        DateTime          @default(now())
+  userId           Int
+  journeyPlanId    Int?
+  type             ReportType
+  feedbackReport   FeedbackReport?
+  productReport    ProductReport?
+  productReturns   ProductReturn[]
+  productsSample   ProductsSample[]
+  client           Clients           @relation(fields: [clientId], references: [id])
+  journeyPlan      JourneyPlan?      @relation(fields: [journeyPlanId], references: [id])
+  user             SalesRep          @relation(fields: [userId], references: [id])
+  visibilityReport VisibilityReport?
+  MyOrder          MyOrder[]         @relation("MyOrderToReport")
+
+  @@index([userId])
+  @@index([orderId])
+  @@index([clientId])
+  @@index([journeyPlanId])
+}
+
+model FeedbackReport {
+  reportId  Int      @id
+  comment   String?
+  createdAt DateTime @default(now())
+  report    Report   @relation(fields: [reportId], references: [id], onDelete: Cascade)
+}
+
+model ProductReport {
+  reportId    Int      @id
+  productName String?
+  quantity    Int?
+  comment     String?
+  createdAt   DateTime @default(now())
+  report      Report   @relation(fields: [reportId], references: [id], onDelete: Cascade)
+}
+
+model VisibilityReport {
+  reportId  Int      @id
+  comment   String?
+  imageUrl  String?
+  createdAt DateTime @default(now())
+  report    Report   @relation(fields: [reportId], references: [id], onDelete: Cascade)
+}
+
+model ProductReturn {
+  id          Int     @id @default(autoincrement())
+  reportId    Int     
+  productName String?
+  quantity    Int?
+  reason      String?
+  imageUrl    String?
+  report      Report  @relation(fields: [reportId], references: [id])
+
+  @@unique([reportId])
+  ProductReturnItem ProductReturnItem[]
+}
+
+model ProductsSample {
+  id          Int     @id @default(autoincrement())
+  reportId    Int     
+  productName String?
+  quantity    Int?
+  reason      String?
+  report      Report  @relation(fields: [reportId], references: [id])
+
+  @@unique([reportId])
+  ProductsSampleItem ProductsSampleItem[]
+}
+
+model ProductReturnItem {
+  id              Int    @id @default(autoincrement())
+  productReturnId Int
+  productName     String
+  quantity        Int
+  reason          String
+  imageUrl        String?
+  productReturn   ProductReturn @relation(fields: [productReturnId], references: [id])
+}
+
+model ProductsSampleItem {
+  id               Int    @id @default(autoincrement())
+  productsSampleId Int
+  productName      String
+  quantity         Int
+  reason           String
+  productsSample   ProductsSample @relation(fields: [productsSampleId], references: [id])
+}
+
+model Leave {
+  id         Int      @id @default(autoincrement())
+  userId     Int
+  leaveType  String
+  startDate  DateTime
+  endDate    DateTime
+  reason     String
+  attachment String?
+  status     String   @default("PENDING")
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  user       SalesRep @relation(fields: [userId], references: [id])
+
+  @@index([userId], map: "leaves_userId_fkey")
+  @@map("leaves")
+}
+
+model UpliftSale {
+  id          Int               @id @default(autoincrement())
+  clientId    Int
+  userId      Int
+  status      String            @default("pending")
+  totalAmount Float             @default(0)
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  client      Clients           @relation(fields: [clientId], references: [id])
+  user        SalesRep          @relation(fields: [userId], references: [id])
+  items       UpliftSaleItem[]
+}
+
+model UpliftSaleItem {
+  id           Int         @id @default(autoincrement())
+  upliftSaleId Int
+  productId    Int
+  quantity     Int
+  unitPrice    Float       // <-- manually entered price
+  total        Float
+  createdAt    DateTime    @default(now())
+  upliftSale   UpliftSale  @relation(fields: [upliftSaleId], references: [id]) 
+  product      Product     @relation(fields: [productId], references: [id])
+}
+
+model Suppliers {
+  id              Int               @id @default(autoincrement())
+  name            String
+  accountBalance  Float             @default(0)
+  contact         String
+  Purchase        Purchase[]
+  SupplierHistory SupplierHistory[]
+}
+
+model SupplierHistory {
+  id              Int       @id @default(autoincrement())
+  supplierId      Int
+  date            DateTime  @default(now())
+  amountIn        Float
+  previousBalance Float
+  newBalance      Float
+  purchaseId      Int
+  Purchase        Purchase  @relation(fields: [purchaseId], references: [id])
+  Suppliers       Suppliers @relation(fields: [supplierId], references: [id])
+
+  @@index([purchaseId], map: "SupplierHistory_purchaseId_fkey")
+  @@index([supplierId], map: "SupplierHistory_supplierId_fkey")
+}
+
+model User {
+  id       Int    @id @default(autoincrement())
+  username String @unique
+  password String
+  role     String
+}
+
+enum ReportType {
+  PRODUCT_AVAILABILITY
+  VISIBILITY_ACTIVITY
+  PRODUCT_SAMPLE
+  PRODUCT_RETURN
+  FEEDBACK
+}
