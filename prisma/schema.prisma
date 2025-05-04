@@ -169,6 +169,7 @@ model Product {
 
   @@index([clientId], map: "Product_clientId_fkey")
   UpliftSaleItem UpliftSaleItem[]
+  OutletQuantity OutletQuantity[]
 }
 
 model TransferHistory {
@@ -272,6 +273,7 @@ model Clients {
 
   @@index([countryId], map: "Clients_countryId_fkey")
   UpliftSale UpliftSale[]
+  OutletQuantity OutletQuantity[]
 }
 
 model ClientPayment {
@@ -285,7 +287,17 @@ model ClientPayment {
 
   @@index([clientId], map: "ClientPayment_clientId_fkey")
 }
+model OutletQuantity {
+  id         Int      @id @default(autoincrement())
+  clientId   Int
+  productId  Int
+  quantity   Int
+  createdAt  DateTime @default(now())
 
+  // Relations
+  client     Clients   @relation(fields: [clientId], references: [id])
+  product    Product  @relation(fields: [productId], references: [id])
+}
 model Riders {
   id            Int     @id @default(autoincrement())
   name          String

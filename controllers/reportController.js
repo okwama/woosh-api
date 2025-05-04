@@ -74,7 +74,30 @@ const createReport = async (req, res) => {
                         quantity: details.quantity || 0,
                         comment: details.comment || '',
                     },
-                });
+                });    
+                
+                // Populate OutletQuantity
+                let productId = details.productId;
+                // Fallback: look up product by name if productId is not provided
+                if (!productId && details.productName) {
+                    const product = await prisma.product.findFirst({
+                        where: { name: details.productName }
+                    });
+                    if (product) productId = product.id;
+                }
+                if (productId) {
+                    await prisma.outletQuantity.create({
+                        data: {
+                            clientId: clientId,
+                            productId: productId,
+                            quantity: details.quantity || 0,
+                            // createdAt is set automatically
+                        }
+                    });
+                }
+
+
+
                 break;
             case 'VISIBILITY_ACTIVITY':
                 specificReport = await prisma.visibilityReport.create({
