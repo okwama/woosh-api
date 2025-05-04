@@ -103,89 +103,40 @@ const checkConsecutiveLateLogins = async (userId) => {
 const recordLogin = async (req, res) => {
   try {
     const { userId } = req.body;
-    const timezone = req.headers['timezone'] || 'Africa/Johannesburg'; // Default to South Africa time (UTC+2)
-
     const now = new Date();
 
     if (!userId) {
       return res.status(400).json({ error: 'User ID is required' });
     }
 
-    console.log('Attempting to record login for user:', userId);
-    console.log('Using timezone:', timezone);
-
-    // Validate user exists
     const user = await prisma.salesRep.findUnique({
       where: { id: parseInt(userId) }
     });
 
     if (!user) {
-      console.error('User not found:', userId);
       return res.status(404).json({ error: 'User not found' });
     }
 
-    // Check if user already has an active session
     const activeSession = await prisma.loginHistory.findFirst({
-      where: {
-        userId: parseInt(userId),
-        logoutAt: null
-      }
+      where: { userId: parseInt(userId), logoutAt: null }
     });
 
     if (activeSession) {
-      console.log('User already has an active session:', activeSession.id);
       return res.status(400).json({ 
         error: 'User already has an active session',
         sessionId: activeSession.id
       });
     }
 
-    // Get current time in GMT+3
-    const gmt3Time = new Date(now.toLocaleString('en-US', { timeZone: 'Africa/Nairobi' }));
-    console.log('GMT+3 time:', gmt3Time.toLocaleString('en-KE', { timeZone: 'Africa/Nairobi' }));
+    const shiftStart = createTime(now, SHIFT_START_HOUR, SHIFT_START_MINUTE);
+    const shiftEnd = createTime(now, SHIFT_END_HOUR, SHIFT_END_MINUTE);
+    const isLate = now > new Date(shiftStart.getTime() + LATE_THRESHOLD_MINUTES * 60000);
 
-    // Convert server time to client timezone
-    const clientTime = new Date(now.toLocaleString('en-US', { timeZone: timezone }));
-    console.log('Client time:', clientTime.toLocaleString('en-KE', { timeZone: timezone }));
-
-    // Calculate time difference between GMT+3 and client time
-    const timeDiff = Math.abs(gmt3Time.getTime() - clientTime.getTime());
-    const maxAllowedDiff = 5 * 60 * 1000;
-
-    if (timeDiff > maxAllowedDiff) {
-      console.error('Time discrepancy detected:', {
-        gmt3Time: gmt3Time.toLocaleString('en-KE', { timeZone: 'Africa/Nairobi' }),
-        clientTime: clientTime.toLocaleString('en-KE', { timeZone: timezone }),
-        difference: timeDiff / 1000 / 60 + ' minutes'
-      });
-      return res.status(400).json({
-        error: 'Time discrepancy detected',
-        details: {
-          gmt3Time: gmt3Time.toLocaleString('en-KE', { timeZone: 'Africa/Nairobi' }),
-          clientTime: clientTime.toLocaleString('en-KE', { timeZone: timezone }),
-          difference: timeDiff / 1000 / 60 + ' minutes',
-          message: 'Client time must be within 5 minutes of GMT+3'
-        }
-      });
-    }
-
-    // Calculate shift times in client's timezone
-    const shiftStart = createTime(clientTime, SHIFT_START_HOUR, SHIFT_START_MINUTE);
-    const shiftEnd = createTime(clientTime, SHIFT_END_HOUR, SHIFT_END_MINUTE);
-
-    console.log('Shift start:', shiftStart.toLocaleString('en-KE', { timeZone: timezone }));
-    console.log('Shift end:', shiftEnd.toLocaleString('en-KE', { timeZone: timezone }));
-
-    // Check if login is within allowed time
-    const isLate = clientTime > new Date(shiftStart.getTime() + LATE_THRESHOLD_MINUTES * 60000);
-    console.log('Is late:', isLate);
-
-    // Create login record with client time
     const loginRecord = await prisma.loginHistory.create({
       data: {
         userId: parseInt(userId),
-        loginAt: clientTime,
-        timezone,
+        loginAt: now,
+        timezone: 'Africa/Johannesburg',
         shiftStart,
         shiftEnd,
         isLate,
@@ -193,32 +144,23 @@ const recordLogin = async (req, res) => {
       }
     });
 
-    // Check for consecutive late logins if this login is late
     if (isLate) {
-      const lateCheckResult = await checkConsecutiveLateLogins(userId);
-      console.log('Late login check result:', lateCheckResult);
+      await checkConsecutiveLateLogins(userId);
     }
-
-    console.log('Login recorded successfully:', loginRecord.id);
 
     res.status(201).json({
       message: 'Login recorded successfully',
       loginRecord,
       isLate,
-      shiftStart: shiftStart.toLocaleString('en-KE', { timeZone: timezone }),
-      shiftEnd: shiftEnd.toLocaleString('en-KE', { timeZone: timezone }),
-      clientTime: clientTime.toLocaleString('en-KE', { timeZone: timezone }),
-      gmt3Time: gmt3Time.toLocaleString('en-KE', { timeZone: 'Africa/Nairobi' }),
-      timezone
+      shiftStart,
+      shiftEnd,
+      loginAt: now
     });
   } catch (error) {
-    console.error('Error recording login:', error);
-    res.status(500).json({ 
-      error: 'Failed to record login',
-      details: process.env.NODE_ENV === 'development' ? error.message : undefined
-    });
+    res.status(500).json({ error: 'Failed to record login' });
   }
 };
+
 
 // Record user logout
 const recordLogout = async (req, res) => {
