@@ -1,5 +1,4 @@
-const { getPrismaClient } = require('../lib/prisma');
-const prisma = getPrismaClient();
+const prisma = require('../lib/prisma');
 
 exports.checkIn = async (req, res) => {
   const { clientId, latitude, longitude, notes, imageUrl } = req.body;

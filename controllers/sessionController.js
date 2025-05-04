@@ -1,5 +1,4 @@
-const { getPrismaClient } = require('../lib/prisma');
-const prisma = getPrismaClient();
+const prisma = require('../lib/prisma');
 
 // Constants for shift times
 const SHIFT_START_HOUR = 9;

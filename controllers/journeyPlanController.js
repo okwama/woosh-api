@@ -1,5 +1,4 @@
-const { getPrismaClient } = require('../lib/prisma');
-const prisma = getPrismaClient();
+const prisma = require('../lib/prisma');
 
 // Ensure salesRepId is not null
 const getSalesRepId = (req) => {

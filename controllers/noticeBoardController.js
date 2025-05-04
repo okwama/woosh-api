@@ -1,5 +1,4 @@
-const { getPrismaClient } = require('../lib/prisma');
-const prisma = getPrismaClient();
+const prisma = require('../lib/prisma');
 
 // Get all notices
 exports.getAllNotices = async (req, res) => {

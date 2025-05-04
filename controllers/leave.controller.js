@@ -1,5 +1,4 @@
-const { getPrismaClient } = require('../lib/prisma');
-const prisma = getPrismaClient();
+const prisma = require('../lib/prisma');
 const multer = require('multer');
 const path = require('path');
 const ImageKit = require('imagekit');

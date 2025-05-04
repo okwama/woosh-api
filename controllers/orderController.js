@@ -1,5 +1,4 @@
-const { getPrismaClient } = require('../lib/prisma');
-const prisma = getPrismaClient();
+const prisma = require('../lib/prisma');
 const asyncHandler = require('express-async-handler');
 
 const createOrder = asyncHandler(async (req, res) => {

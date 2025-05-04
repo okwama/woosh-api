@@ -3,10 +3,7 @@ const express = require('express');
 const cors = require('cors');
 const morgan = require('morgan');
 const path = require('path');
-const { getPrismaClient, disconnect } = require('./lib/prisma');
-
-// Initialize Prisma client
-const prisma = getPrismaClient();
+const prisma = require('./lib/prisma');
 
 const authRoutes = require('./routes/authRoutes');
 const orderRoutes = require('./routes/orderRoutes');
@@ -78,7 +75,7 @@ const gracefulShutdown = async () => {
   
   // Disconnect from the database
   try {
-    await disconnect();
+    await prisma.disconnect();
     console.log('Database connection closed');
   } catch (error) {
     console.error('Error disconnecting from database:', error);

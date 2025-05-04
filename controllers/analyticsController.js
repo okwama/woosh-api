@@ -1,5 +1,4 @@
-const { getPrismaClient } = require('../lib/prisma');
-const prisma = getPrismaClient();
+const prisma = require('../lib/prisma');
 
 // Calculate user login hours
 const calculateLoginHours = async (req, res) => {
