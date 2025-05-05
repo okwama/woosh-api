@@ -474,6 +474,7 @@ model VisibilityReport {
 
 model ProductReturn {
   id          Int     @id @default(autoincrement())
+  clientId    Int
   reportId    Int     
   productName String?
   quantity    Int?
@@ -484,6 +485,16 @@ model ProductReturn {
   @@unique([reportId])
   ProductReturnItem ProductReturnItem[]
 }
+model ProductReturnItem {
+  id              Int    @id @default(autoincrement())
+  productReturnId Int
+  productName     String
+  quantity        Int
+  reason          String
+  imageUrl        String?
+  productReturn   ProductReturn @relation(fields: [productReturnId], references: [id])
+}
+
 
 model ProductsSample {
   id          Int     @id @default(autoincrement())
@@ -497,15 +508,6 @@ model ProductsSample {
   ProductsSampleItem ProductsSampleItem[]
 }
 
-model ProductReturnItem {
-  id              Int    @id @default(autoincrement())
-  productReturnId Int
-  productName     String
-  quantity        Int
-  reason          String
-  imageUrl        String?
-  productReturn   ProductReturn @relation(fields: [productReturnId], references: [id])
-}
 
 model ProductsSampleItem {
   id               Int    @id @default(autoincrement())

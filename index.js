@@ -5,6 +5,7 @@ const morgan = require('morgan');
 const path = require('path');
 const prisma = require('./lib/prisma');
 
+const productReturnRoutes = require('./routes/productReturnRoutes');
 const authRoutes = require('./routes/authRoutes');
 const orderRoutes = require('./routes/orderRoutes');
 const journeyPlanRoutes = require('./routes/journeyPlanRoutes');
@@ -43,6 +44,7 @@ app.use('/api/office', officeRoutes);
 app.use('/api/notice-board', noticeBoardRoutes);
 app.use('/api/products', productRoutes);
 app.use('/api/reports', reportRoutes);
+app.use('/api/product-returns', productReturnRoutes);
 app.use('/api/leave', leaveRoutes);
 app.use('/api', uploadRoutes);
 app.use('/api', profileRoutes);
