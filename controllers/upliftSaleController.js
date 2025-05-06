@@ -93,6 +93,8 @@ exports.createUpliftSale = async (req, res) => {
         ...sale,
         items: saleItems
       };
+    }, {
+      timeout: 10000 // 10 seconds, in milliseconds
     });
 
     console.log('[UpliftSale] Successfully created sale:', upliftSale);
