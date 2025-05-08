@@ -179,6 +179,7 @@ const login = async (req, res) => {
         department: salesRep.Manager?.department,
         region: salesRep.region,
         region_id: salesRep.region_id,
+        route_id: salesRep.route_id,
         countryId: salesRep.countryId,
         country: salesRep.country
       },
@@ -238,25 +239,29 @@ const refresh = async (req, res) => {
         { expiresIn: '9h' }
       );
 
+      // Calculate expiration time
+      const expiresAt = new Date(Date.now() + 9 * 60 * 60 * 1000); // 9 hours from now
+
       // Store new token in database
       await prisma.token.create({
         data: {
           token: newToken,
-          user: {
-            connect: { id: user.id }
-          },
-          expiresAt: new Date(Date.now() + 9 * 60 * 60 * 1000) // 9 hours
+          salesRepId: user.id,
+          expiresAt: expiresAt,
+          blacklisted: false
         }
       });
 
-      // Delete old token
-      await prisma.token.deleteMany({
-        where: { token: oldToken }
+      // Blacklist old token instead of deleting it
+      await prisma.token.updateMany({
+        where: { token: oldToken },
+        data: { blacklisted: true }
       });
 
       res.json({
         success: true,
-        token: newToken
+        token: newToken,
+        expiresAt: expiresAt
       });
     } catch (error) {
       console.error('Token refresh error:', error);

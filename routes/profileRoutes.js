@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const multer = require('multer');
 const path = require('path');
-const { auth } = require('../middleware/auth');
+const { auth } = require('../middleware/authMiddleware');
 const { updateProfilePhoto, getProfile, updatePassword } = require('../controllers/profileController');
 const { anyUser } = require('../middleware/roleAuth');
 // Configure multer for memory storage

@@ -1,6 +1,7 @@
 const jwt = require('jsonwebtoken');
 const prisma = require('../lib/prisma');
 
+// Main authentication middleware
 const authenticateToken = async (req, res, next) => {
   try {
     const authHeader = req.headers['authorization'];
@@ -19,7 +20,12 @@ const authenticateToken = async (req, res, next) => {
     });
 
     if (blacklistedToken) {
-      return res.status(401).json({ error: 'Token has been invalidated' });
+      // Clear any existing tokens from the client
+      res.setHeader('Clear-Site-Data', '"cache", "cookies", "storage"');
+      return res.status(401).json({ 
+        error: 'Session expired. Please log in again.',
+        code: 'TOKEN_BLACKLISTED'
+      });
     }
 
     // Verify the token
@@ -37,7 +43,12 @@ const authenticateToken = async (req, res, next) => {
     });
 
     if (!tokenRecord) {
-      return res.status(401).json({ error: 'Invalid or expired token' });
+      // Clear any existing tokens from the client
+      res.setHeader('Clear-Site-Data', '"cache", "cookies", "storage"');
+      return res.status(401).json({ 
+        error: 'Session expired. Please log in again.',
+        code: 'TOKEN_EXPIRED'
+      });
     }
 
     // Check if token needs rotation (every 4 hours)
@@ -101,7 +112,12 @@ const authenticateToken = async (req, res, next) => {
   } catch (error) {
     console.error('Authentication error:', error);
     if (error.name === 'TokenExpiredError') {
-      return res.status(401).json({ error: 'Token expired' });
+      // Clear any existing tokens from the client
+      res.setHeader('Clear-Site-Data', '"cache", "cookies", "storage"');
+      return res.status(401).json({ 
+        error: 'Session expired. Please log in again.',
+        code: 'TOKEN_EXPIRED'
+      });
     }
     if (error.name === 'JsonWebTokenError') {
       return res.status(401).json({ error: 'Invalid token' });
@@ -110,4 +126,57 @@ const authenticateToken = async (req, res, next) => {
   }
 };
 
-module.exports = { authenticateToken };
+// Function to create a manager if the role is 'manager'
+const createManagerIfNeeded = async (userId, role, managerDetails) => {
+  if (role === 'MANAGER') {
+    try {
+      await prisma.manager.create({
+        data: {
+          userId: userId,
+          email: managerDetails.email,
+          password: managerDetails.password,
+          department: managerDetails.department,
+        },
+      });
+      console.log('Manager created successfully');
+    } catch (error) {
+      console.error('Error creating manager:', error);
+      throw new Error('Failed to create manager');
+    }
+  }
+};
+
+// Function to create a user and update the manager table if necessary
+const createUser = async (req, res) => {
+  const { name, email, phoneNumber, password, role, managerDetails } = req.body;
+
+  try {
+    // Create the user first
+    const user = await prisma.salesRep.create({
+      data: {
+        name,
+        email,
+        phoneNumber,
+        password, // Ensure you hash the password before saving it
+        role,
+      },
+    });
+
+    // Call the function to create manager if role is manager
+    await createManagerIfNeeded(user.id, role, managerDetails);
+
+    // Respond with the created user
+    res.status(201).json(user);
+  } catch (error) {
+    console.error('Error creating user:', error);
+    res.status(500).json({ error: 'Failed to create user' });
+  }
+};
+
+// Export all functions
+module.exports = {
+  authenticateToken,
+  auth: authenticateToken, // Alias for backward compatibility
+  createUser,
+  createManagerIfNeeded
+};

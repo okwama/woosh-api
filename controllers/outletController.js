@@ -29,29 +29,72 @@ const upload = multer({
 // Get all outlets
 const getOutlets = async (req, res) => {
   try {
+    const { route_id, page = 1, limit = 10 } = req.query;
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+
+    // Build the where clause
+    const where = {};
+    if (route_id) {
+      where.route_id = parseInt(route_id);
+    }
+
+    // Get total count for pagination
+    const total = await prisma.clients.count({ where });
+
     const outlets = await prisma.clients.findMany({
+      where,
       select: {
         id: true,
         name: true,
-        balance: true,  // Just select the balance field
+        balance: true,
         address: true,
         latitude: true,
-        longitude: true
+        longitude: true,
+        email: true,
+        contact: true,
+        tax_pin: true,
+        location: true,
+        client_type: true,
+        region_id: true,
+        region: true,
+        countryId: true,
+        status: true,
+        ClientPayment: true,
+        country: true,
+        journeyPlans: true,
+        checkins: true,
+        MyOrder: true,
+        Product: true,
+        reports: true,
+        UpliftSale: true,
+        _count: true
+      },
+      skip,
+      take: parseInt(limit),
+      orderBy: {
+        name: 'asc'
       }
     });
 
     // Add default value for balance if it's null/undefined
     const outletsWithDefaultBalance = outlets.map(outlet => ({
       ...outlet,
-      balance: outlet.balance ?? 0  // Using nullish coalescing operator
+      balance: outlet.balance ?? 0
     }));
 
-    res.json(outletsWithDefaultBalance);
+    res.json({
+      data: outletsWithDefaultBalance,
+      total,
+      page: parseInt(page),
+      limit: parseInt(limit),
+      totalPages: Math.ceil(total / parseInt(limit))
+    });
   } catch (error) {
     console.error('Error fetching outlets:', error);
     res.status(500).json({ error: 'Error fetching outlets' });
   }
 };
+
 // Create a new outlet
 const createOutlet = async (req, res) => {
   const { name, address, latitude, longitude, balance, email, location, tax_pin,contact ,region_id,region,country,client_type} = req.body;
@@ -92,11 +135,33 @@ const updateOutlet = async (req, res) => {
   const { id } = req.params;
   const { name, address, latitude, longitude, balance, email, phone, kraPin } = req.body;
 
-  if (!name || !address) {
-    return res.status(400).json({ error: 'Name and address are required' });
-  }
-
   try {
+    // First get the current outlet data
+    const currentOutlet = await prisma.clients.findUnique({
+      where: { id: parseInt(id) }
+    });
+
+    if (!currentOutlet) {
+      return res.status(404).json({ error: 'Outlet not found' });
+    }
+
+    // If this is just a location update (only latitude and longitude provided)
+    if (Object.keys(req.body).length === 2 && latitude !== undefined && longitude !== undefined) {
+      const updatedOutlet = await prisma.clients.update({
+        where: { id: parseInt(id) },
+        data: {
+          latitude,
+          longitude,
+        },
+      });
+      return res.status(200).json(updatedOutlet);
+    }
+
+    // For full updates, require name and address
+    if (!name || !address) {
+      return res.status(400).json({ error: 'Name and address are required for full updates' });
+    }
+
     const updatedOutlet = await prisma.clients.update({
       where: { id: parseInt(id) },
       data: {
@@ -106,14 +171,52 @@ const updateOutlet = async (req, res) => {
         ...(email && { email }),
         ...(contact && { contact }),
         ...(tax_pin && { tax_pin }),
-        latitude,
-        longitude,
-          },
+        ...(latitude !== undefined && { latitude }),
+        ...(longitude !== undefined && { longitude }),
+      },
     });
     res.status(200).json(updatedOutlet);
   } catch (error) {
     console.error('Error updating outlet:', error);
     res.status(500).json({ error: 'Failed to update outlet' });
+  }
+};
+
+// Update outlet location only
+const updateOutletLocation = async (req, res) => {
+  const { id } = req.params;
+  const { latitude, longitude } = req.body;
+
+  // Validate required fields
+  if (latitude === undefined || longitude === undefined) {
+    return res.status(400).json({ 
+      error: 'Both latitude and longitude are required for location update' 
+    });
+  }
+
+  try {
+    // First check if outlet exists
+    const outlet = await prisma.clients.findUnique({
+      where: { id: parseInt(id) }
+    });
+
+    if (!outlet) {
+      return res.status(404).json({ error: 'Outlet not found' });
+    }
+
+    // Update only location fields
+    const updatedOutlet = await prisma.clients.update({
+      where: { id: parseInt(id) },
+      data: {
+        latitude,
+        longitude,
+      },
+    });
+
+    res.status(200).json(updatedOutlet);
+  } catch (error) {
+    console.error('Error updating outlet location:', error);
+    res.status(500).json({ error: 'Failed to update outlet location' });
   }
 };
 
@@ -238,5 +341,6 @@ module.exports = {
   getOutletProducts,
   getOutletLocation,
   addClientPayment,
-  getClientPayments
+  getClientPayments,
+  updateOutletLocation
 };

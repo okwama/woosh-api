@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const upliftSaleController = require('../controllers/upliftSaleController');
-const { auth } = require('../middleware/auth');
+const { auth } = require('../middleware/authMiddleware');
 
 // Apply authentication middleware to all routes
 router.use(auth);

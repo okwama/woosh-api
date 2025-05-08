@@ -23,7 +23,7 @@ model SalesRep {
   password     String
   countryId    Int
   region_id    Int
-  region       String
+  route_id     Int
   role         String?        @default("USER")
   status       Int?           @default(0)
   createdAt    DateTime       @default(now())
@@ -38,6 +38,7 @@ model SalesRep {
   UpliftSale   UpliftSale[]
   leaves       Leave[]
   Manager      Manager?
+  Task         Task[]
 
   @@index([countryId], map: "SalesRep_countryId_fkey")
 }
@@ -263,6 +264,7 @@ model Clients {
   email         String?
   region_id     Int
   region        String
+  route_id      Int
   contact       String
   tax_pin       String
   location      String
@@ -274,7 +276,7 @@ model Clients {
   journeyPlans  JourneyPlan[]
   checkins      ManagerCheckin[]
   MyOrder       MyOrder[]
-  products      Product[]
+  Product       Product[]
   reports       Report[]
   UpliftSale    UpliftSale[]
 
@@ -357,6 +359,7 @@ model OrderItem {
 model MyOrder {
   id                 Int         @id @default(autoincrement())
   totalAmount        Float
+  amountPaid         Decimal     @db.Decimal(11, 2)
   comment            String
   customerType       String
   customerId         String
@@ -379,6 +382,8 @@ model MyOrder {
   clientId           Int
   createdAt          DateTime    @default(now())
   updatedAt          DateTime    @updatedAt
+  approved_by        String      @db.VarChar(200)
+  approved_by_name   String      @db.VarChar(200)
   client             Clients     @relation(fields: [clientId], references: [id])
   user               SalesRep    @relation(fields: [userId], references: [id])
   orderItems         OrderItem[]
@@ -416,7 +421,7 @@ model NoticeBoard {
   title     String
   content   String
   createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  updatedAt DateTime @default(now()) @updatedAt
 }
 
 model Report {
@@ -583,6 +588,53 @@ model SupplierHistory {
 
   @@index([purchaseId], map: "SupplierHistory_purchaseId_fkey")
   @@index([supplierId], map: "SupplierHistory_supplierId_fkey")
+}
+
+model users {
+  id           Int       @id @default(autoincrement())
+  username     String    @db.VarChar(100)
+  department   Int
+  password     String    @db.VarChar(100)
+  account_code String    @db.VarChar(32)
+  firstname    String?   @db.VarChar(255)
+  lastname     String?   @db.VarChar(255)
+  facebook_id  String?   @db.VarChar(255)
+  address      String?   @db.VarChar(255)
+  email        String?   @db.VarChar(255)
+  phone        String    @db.VarChar(32)
+  gender       String    @db.VarChar(32)
+  country      String    @db.VarChar(99)
+  image        String    @db.VarChar(999)
+  created      DateTime? @db.DateTime(0)
+  modified     DateTime? @db.DateTime(0)
+  status       Boolean?  @default(true)
+  Task         Task[]
+}
+
+model Task {
+  id           Int       @id @default(autoincrement())
+  title        String
+  description  String
+  createdAt    DateTime  @default(now())
+  completedAt  DateTime?
+  isCompleted  Boolean   @default(false)
+  priority     String    @default("medium")
+  status       String    @default("pending")
+  salesRepId   Int
+  assignedById Int?
+  assignedBy   users?    @relation(fields: [assignedById], references: [id])
+  salesRep     SalesRep  @relation(fields: [salesRepId], references: [id])
+
+  @@index([assignedById])
+  @@index([salesRepId], map: "tasks_salesRepId_fkey")
+  @@map("tasks")
+}
+
+model routes {
+  id     Int    @id @default(autoincrement())
+  name   String @db.VarChar(100)
+  region Int
+  status Int
 }
 
 enum ReportType {

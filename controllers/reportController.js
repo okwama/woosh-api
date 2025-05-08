@@ -84,16 +84,16 @@ const createReport = async (req, res) => {
                     });
                     if (product) productId = product.id;
                 }
-                if (productId) {
-                    await prisma.outletQuantity.create({
-                        data: {
-                            clientId: clientId,
-                            productId: productId,
-                            quantity: details.quantity || 0,
-                            // createdAt is set automatically
-                        }
-                    });
-                }
+                // if (productId) {
+                //     await prisma.outletQuantity.create({
+                //         data: {
+                //             clientId: clientId,
+                //             productId: productId,
+                //             quantity: details.quantity || 0,
+                //             // createdAt is set automatically
+                //         }
+                //     });
+                // }
 
 
 
