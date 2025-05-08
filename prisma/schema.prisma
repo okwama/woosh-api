@@ -23,7 +23,9 @@ model SalesRep {
   password     String
   countryId    Int
   region_id    Int
+  region       String
   route_id     Int
+  route        String         @db.VarChar(100)
   role         String?        @default("USER")
   status       Int?           @default(0)
   createdAt    DateTime       @default(now())
@@ -382,8 +384,8 @@ model MyOrder {
   clientId           Int
   createdAt          DateTime    @default(now())
   updatedAt          DateTime    @updatedAt
-  approved_by        String      @db.VarChar(200)
-  approved_by_name   String      @db.VarChar(200)
+  approved_by        String?      @db.VarChar(200)
+  approved_by_name   String?      @db.VarChar(200)
   client             Clients     @relation(fields: [clientId], references: [id])
   user               SalesRep    @relation(fields: [userId], references: [id])
   orderItems         OrderItem[]

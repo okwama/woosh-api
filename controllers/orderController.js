@@ -11,10 +11,21 @@ const createOrder = asyncHandler(async (req, res) => {
   // Ensure we have a valid user ID from the authenticated user
   const userId = req.user?.id;
   
+  console.log('[Order Debug] Authentication check:', {
+    hasUser: !!req.user,
+    userId: userId,
+    userDetails: req.user ? {
+      id: req.user.id,
+      name: req.user.name,
+      role: req.user.role
+    } : null
+  });
+  
   if (!userId) {
-    return res.status(400).json({
+    console.log('[Order Debug] Authentication failed: No user ID');
+    return res.status(401).json({
       success: false,
-      error: 'User ID is required. Please ensure you are properly authenticated.'
+      error: 'Authentication required. Please log in again.'
     });
   }
 
@@ -40,6 +51,7 @@ const createOrder = asyncHandler(async (req, res) => {
     userCountryId: userCountryId,
     finalRegionId: userRegionId,
     finalCountryId: userCountryId
+    
   });
 
   const createdItems = [];
@@ -523,13 +535,24 @@ const createOrder = asyncHandler(async (req, res) => {
     // Create the order first (outside transaction)
     const newOrder = await prisma.myOrder.create({
       data: {
-        userId: userId,
+        user: {
+          connect: {
+            id: userId
+          }
+        },
         totalAmount: parseFloat((totalAmount || 0).toFixed(2)),
         comment: req.body.comment || '',
         customerType: req.body.customerType || 'RETAIL',
         customerId: req.body.customerId || '',
         customerName: req.body.customerName || 'Customer',
-        clientId: clientId
+        amountPaid: 0,
+        approved_by: req.body.approved_by || "Unapproved",
+        approved_by_name: req.body.approved_by_name || "Pending",
+        client: {
+          connect: {
+            id: clientId
+          }
+        }
       }
     });
     
