@@ -651,7 +651,7 @@ const createOrder = asyncHandler(async (req, res) => {
             customerId: req.body.customerId || '',
             customerName: req.body.customerName || 'Customer',
             amountPaid: new Prisma.Decimal("0.00"),
-            balance: new Prisma.Decimal(totalAmount.toFixed(2)),
+            balance: new Prisma.Decimal(totalAmount.toString()),
             approved_by: req.body.approved_by || "Unapproved",
             approved_by_name: req.body.approved_by_name || "Pending",
             storeId: storeId,
