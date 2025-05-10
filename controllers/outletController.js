@@ -298,6 +298,19 @@ const addClientPayment = async (req, res) => {
     }
 
     try {
+      // Get client's current balance
+      const client = await prisma.clients.findUnique({
+        where: { id: clientId },
+        select: {
+          id: true,
+          balance: true
+        }
+      });
+
+      if (!client) {
+        return res.status(404).json({ error: 'Client not found' });
+      }
+
       // Upload file to ImageKit
       const uniqueFilename = `${Date.now()}-${Math.round(Math.random() * 1E9)}${path.extname(req.file.originalname)}`;
       const result = await imagekit.upload({
@@ -306,17 +319,37 @@ const addClientPayment = async (req, res) => {
         folder: 'whoosh/payments'
       });
 
-      // Create payment record in database
-      const payment = await prisma.clientPayment.create({
-        data: {
-          clientId,
-          amount: parseFloat(amount),
-          imageUrl: result.url,
-          status: 'PENDING',
-        },
-      });
+      // Calculate new balance
+      const currentBalance = parseFloat(client.balance || '0');
+      const paymentAmount = parseFloat(amount);
+      const newBalance = Math.max(0, currentBalance - paymentAmount).toString();
 
-      res.status(201).json({ success: true, data: payment });
+      // Create payment record and update client balance in a transaction
+      const [payment] = await prisma.$transaction([
+        prisma.clientPayment.create({
+          data: {
+            clientId,
+            amount: paymentAmount,
+            imageUrl: result.url,
+            status: 'PENDING',
+          },
+        }),
+        prisma.clients.update({
+          where: { id: clientId },
+          data: {
+            balance: newBalance
+          }
+        })
+      ]);
+
+      res.status(201).json({ 
+        success: true, 
+        data: {
+          ...payment,
+          previousBalance: currentBalance,
+          newBalance: newBalance
+        }
+      });
     } catch (error) {
       console.error('Error creating client payment:', error);
       res.status(500).json({ error: 'Failed to create client payment' });

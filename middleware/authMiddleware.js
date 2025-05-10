@@ -177,6 +177,7 @@ const createUser = async (req, res) => {
 module.exports = {
   authenticateToken,
   auth: authenticateToken, // Alias for backward compatibility
+  protect: authenticateToken, // Add protect middleware
   createUser,
   createManagerIfNeeded
 };

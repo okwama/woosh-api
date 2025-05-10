@@ -13,9 +13,9 @@ const createReport = async (req, res) => {
     try {
         const { type, journeyPlanId, userId, clientId, details } = req.body;
 
-        if (!type || !details) {
-            logError(new Error('Type and details are required'), context);
-            return res.status(400).json({ error: 'Type and details are required' });
+        if (!type || !details || !userId || !clientId) {
+            logError(new Error('Type, details, userId, and clientId are required'), context);
+            return res.status(400).json({ error: 'Type, details, userId, and clientId are required' });
         }
 
         // Validate sales rep exists
@@ -62,55 +62,91 @@ const createReport = async (req, res) => {
         switch (type) {
             case 'FEEDBACK':
                 specificReport = await prisma.feedbackReport.create({
-                    data: { reportId: report.id, comment: details.comment || '' },
+                    data: { 
+                        comment: details.comment || '',
+                        user: { connect: { id: userId } },
+                        client: { connect: { id: clientId } },
+                        Report: { connect: { id: report.id } }
+                    },
                 });
                 break;
-            case 'PRODUCT_AVAILABILITY':
-                specificReport = await prisma.productReport.create({
-                    data: {
-                        reportId: report.id,
-                        productName: details.productName || 'Unknown',
-                        quantity: details.quantity || 0,
-                        comment: details.comment || '',
+            case 'PRODUCT_AVAILABILITY': {
+                // First find the product by name
+                const product = await prisma.product.findFirst({
+                    where: {
+                        name: {
+                            contains: details.productName,
+                        }
                     },
-                });    
-                
-                // Populate OutletQuantity
-                let productId = details.productId;
-                // Fallback: look up product by name if productId is not provided
-                if (!productId && details.productName) {
-                    const product = await prisma.product.findFirst({
-                        where: { name: details.productName }
-                    });
-                    if (product) productId = product.id;
+                    select: {
+                        id: true,
+                        name: true
+                    }
+                });
+
+                if (!product) {
+                    logError(new Error('Product not found'), { ...context, productName: details.productName });
+                    return res.status(400).json({ error: 'Product not found' });
                 }
-                // if (productId) {
-                //     await prisma.outletQuantity.create({
-                //         data: {
-                //             clientId: clientId,
-                //             productId: productId,
-                //             quantity: details.quantity || 0,
-                //             // createdAt is set automatically
-                //         }
-                //     });
-                // }
 
+                // Check for existing report for this product
+                const existingReport = await prisma.productReport.findFirst({
+                    where: {
+                        productId: product.id,
+                        clientId: clientId,
+                        createdAt: {
+                            gte: new Date(new Date().setHours(0, 0, 0, 0)) // Today's reports only
+                        }
+                    }
+                });
 
-
+                if (existingReport) {
+                    // Update existing report
+                    specificReport = await prisma.productReport.update({
+                        where: {
+                            id: existingReport.id
+                        },
+                        data: {
+                            quantity: details.quantity || 0,
+                            comment: details.comment || '',
+                            user: { connect: { id: userId } },
+                            client: { connect: { id: clientId } },
+                            Report: { connect: { id: report.id } }
+                        }
+                    });
+                } else {
+                    // Create new report
+                    specificReport = await prisma.productReport.create({
+                        data: {
+                            productName: product.name || 'Unknown',
+                            productId: product.id,
+                            quantity: details.quantity || 0,
+                            comment: details.comment || '',
+                            user: { connect: { id: userId } },
+                            client: { connect: { id: clientId } },
+                            Report: { connect: { id: report.id } }
+                        },
+                    });
+                }
                 break;
+            }
             case 'VISIBILITY_ACTIVITY':
                 specificReport = await prisma.visibilityReport.create({
                     data: {
-                        reportId: report.id,
                         comment: details.comment || '',
                         imageUrl: details.imageUrl || '',
+                        user: { connect: { id: userId } },
+                        client: { connect: { id: clientId } },
+                        Report: { connect: { id: report.id } }
                     },
                 });
                 break;
             case 'PRODUCT_RETURN': {
                 specificReport = await prisma.productReturn.create({
                     data: {
-                        reportId: report.id,
+                        user: { connect: { id: userId } },
+                        client: { connect: { id: clientId } },
+                        Report: { connect: { id: report.id } }
                     },
                 });
 
@@ -123,6 +159,8 @@ const createReport = async (req, res) => {
                                 quantity: item.quantity || 0,
                                 reason: item.reason || '',
                                 imageUrl: item.imageUrl || '',
+                                user: { connect: { id: userId } },
+                                client: { connect: { id: clientId } }
                             },
                         })
                     ));
@@ -132,7 +170,9 @@ const createReport = async (req, res) => {
             case 'PRODUCT_SAMPLE': {
                 specificReport = await prisma.productsSample.create({
                     data: {
-                        reportId: report.id,
+                        user: { connect: { id: userId } },
+                        client: { connect: { id: clientId } },
+                        Report: { connect: { id: report.id } }
                     },
                 });
 
@@ -144,6 +184,8 @@ const createReport = async (req, res) => {
                                 productName: item.productName || 'Unknown',
                                 quantity: item.quantity || 0,
                                 reason: item.reason || '',
+                                user: { connect: { id: userId } },
+                                client: { connect: { id: clientId } }
                             },
                         })
                     ));
@@ -155,20 +197,51 @@ const createReport = async (req, res) => {
                 return res.status(400).json({ error: 'Invalid report type' });
         }
 
-        res.status(201).json({ report, specificReport, items });
+        res.status(201).json({ 
+            report, 
+            specificReport, 
+            items,
+            userId,
+            clientId
+        });
     } catch (error) {
         logError(error, context);
         res.status(500).json({ error: 'Error creating report' });
     }
 };
 
-
 // Get all reports
 const getAllReports = async (req, res) => {
     const context = { function: 'getAllReports' };
     try {
         const reports = await prisma.report.findMany({
-            include: { feedbackReport: true, productReport: true, visibilityReport: true },
+            include: { 
+                feedbackReport: true, 
+                productReport: true, 
+                visibilityReport: true,
+                productReturn: {
+                    include: {
+                        items: true
+                    }
+                },
+                productsSample: {
+                    include: {
+                        items: true
+                    }
+                },
+                user: {
+                    select: {
+                        id: true,
+                        name: true
+                    }
+                },
+                client: {
+                    select: {
+                        id: true,
+                        name: true
+                    }
+                }
+            },
         });
         res.json(reports);
     } catch (error) {
@@ -189,7 +262,33 @@ const getReportById = async (req, res) => {
 
         const report = await prisma.report.findUnique({
             where: { id },
-            include: { feedbackReport: true, productReport: true, visibilityReport: true },
+            include: { 
+                feedbackReport: true, 
+                productReport: true, 
+                visibilityReport: true,
+                productReturn: {
+                    include: {
+                        items: true
+                    }
+                },
+                productsSample: {
+                    include: {
+                        items: true
+                    }
+                },
+                user: {
+                    select: {
+                        id: true,
+                        name: true
+                    }
+                },
+                client: {
+                    select: {
+                        id: true,
+                        name: true
+                    }
+                }
+            },
         });
 
         if (!report) {
@@ -209,7 +308,7 @@ const updateReport = async (req, res) => {
     const context = { function: 'updateReport', params: req.params, body: req.body };
     try {
         const id = Number(req.params.id);
-        const { type, details } = req.body;
+        const { type, details, userId, clientId } = req.body;
 
         if (isNaN(id)) {
             logError(new Error('Invalid report ID'), { ...context, id });
@@ -227,8 +326,17 @@ const updateReport = async (req, res) => {
             case 'FEEDBACK':
                 specificReport = await prisma.feedbackReport.upsert({
                     where: { reportId: id },
-                    update: { comment: details.comment || '' },
-                    create: { reportId: id, comment: details.comment || '' },
+                    update: { 
+                        comment: details.comment || '',
+                        userId,
+                        clientId
+                    },
+                    create: { 
+                        reportId: id, 
+                        comment: details.comment || '',
+                        userId,
+                        clientId
+                    },
                 });
                 break;
             case 'PRODUCT_AVAILABILITY':
@@ -238,12 +346,16 @@ const updateReport = async (req, res) => {
                         productName: details.productName || 'Unknown',
                         quantity: details.quantity || 0,
                         comment: details.comment || '',
+                        userId,
+                        clientId
                     },
                     create: {
                         reportId: id,
                         productName: details.productName || 'Unknown',
                         quantity: details.quantity || 0,
                         comment: details.comment || '',
+                        userId,
+                        clientId
                     },
                 });
                 break;
@@ -253,11 +365,15 @@ const updateReport = async (req, res) => {
                     update: {
                         comment: details.comment || '',
                         imageUrl: details.imageUrl || '',
+                        userId,
+                        clientId
                     },
                     create: {
                         reportId: id,
                         comment: details.comment || '',
                         imageUrl: details.imageUrl || '',
+                        userId,
+                        clientId
                     },
                 });
                 break;
@@ -287,6 +403,18 @@ const deleteReport = async (req, res) => {
         await prisma.feedbackReport.deleteMany({ where: { reportId: id } });
         await prisma.productReport.deleteMany({ where: { reportId: id } });
         await prisma.visibilityReport.deleteMany({ where: { reportId: id } });
+        await prisma.productReturnItem.deleteMany({ 
+            where: { 
+                productReturn: { reportId: id } 
+            } 
+        });
+        await prisma.productReturn.deleteMany({ where: { reportId: id } });
+        await prisma.productsSampleItem.deleteMany({ 
+            where: { 
+                productsSample: { reportId: id } 
+            } 
+        });
+        await prisma.productsSample.deleteMany({ where: { reportId: id } });
 
         // Delete the main report
         await prisma.report.delete({ where: { id } });

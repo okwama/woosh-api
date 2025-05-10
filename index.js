@@ -28,6 +28,7 @@ const sessionRoutes = require('./routes/sessionRoutes');
 const upliftSalesRoutes = require('./routes/upliftSalesRoutes');
 const excelImportRoutes = require('./routes/excelImport');
 const taskRoutes = require('./routes/taskRoutes');
+const storeRoutes = require('./routes/storeRoutes');
 
 const app = express();
 app.use(express.json());
@@ -124,6 +125,7 @@ app.use('/api/sessions', sessionRoutes);
 app.use('/api/uplift-sales', upliftSalesRoutes);
 app.use('/api/excel', excelImportRoutes);
 app.use('/api/tasks', taskRoutes);
+app.use('/api/stores', storeRoutes);
 
 // Handle 404 Errors
 app.use((req, res, next) => {

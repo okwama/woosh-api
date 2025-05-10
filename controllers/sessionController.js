@@ -102,10 +102,25 @@ const checkConsecutiveLateLogins = async (userId) => {
 const recordLogin = async (req, res) => {
   try {
     const { userId } = req.body;
+    const timezone = req.headers['timezone'] || 'Africa/Nairobi';
     const now = new Date();
 
     if (!userId) {
       return res.status(400).json({ error: 'User ID is required' });
+    }
+
+    // Convert to client's timezone
+    const clientTime = new Date(now.toLocaleString('en-US', { timeZone: timezone }));
+    const currentHour = clientTime.getHours();
+    const currentMinute = clientTime.getMinutes();
+
+    // Check if current time is before 9 AM in client's timezone
+    if (currentHour < SHIFT_START_HOUR || (currentHour === SHIFT_START_HOUR && currentMinute < SHIFT_START_MINUTE)) {
+      return res.status(400).json({ 
+        error: 'Sessions can only be started after 9:00 AM',
+        currentTime: `${currentHour}:${currentMinute.toString().padStart(2, '0')}`,
+        timezone: timezone
+      });
     }
 
     const user = await prisma.salesRep.findUnique({
@@ -127,15 +142,16 @@ const recordLogin = async (req, res) => {
       });
     }
 
-    const shiftStart = createTime(now, SHIFT_START_HOUR, SHIFT_START_MINUTE);
-    const shiftEnd = createTime(now, SHIFT_END_HOUR, SHIFT_END_MINUTE);
-    const isLate = now > new Date(shiftStart.getTime() + LATE_THRESHOLD_MINUTES * 60000);
+    // Calculate shift times in client's timezone
+    const shiftStart = createTime(clientTime, SHIFT_START_HOUR, SHIFT_START_MINUTE);
+    const shiftEnd = createTime(clientTime, SHIFT_END_HOUR, SHIFT_END_MINUTE);
+    const isLate = clientTime > new Date(shiftStart.getTime() + LATE_THRESHOLD_MINUTES * 60000);
 
     const loginRecord = await prisma.loginHistory.create({
       data: {
         userId: parseInt(userId),
         loginAt: now,
-        timezone: 'Africa/Johannesburg',
+        timezone,
         shiftStart,
         shiftEnd,
         isLate,
@@ -153,9 +169,12 @@ const recordLogin = async (req, res) => {
       isLate,
       shiftStart,
       shiftEnd,
-      loginAt: now
+      loginAt: now,
+      timezone,
+      clientTime: clientTime
     });
   } catch (error) {
+    console.error('Error recording login:', error);
     res.status(500).json({ error: 'Failed to record login' });
   }
 };
