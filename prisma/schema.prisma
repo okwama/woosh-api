@@ -398,13 +398,13 @@ model MyOrder {
   cancel_reason      String?
   recepient          String?
   userId             Int
-  imageUrl           String?
   clientId           Int
   createdAt          DateTime    @default(now())
   updatedAt          DateTime    @updatedAt
   approved_by        String      @db.VarChar(200)
   approved_by_name   String      @db.VarChar(200)
   storeId            Int?
+  imageUrl           String?
   client             Clients     @relation(fields: [clientId], references: [id])
   user               SalesRep    @relation(fields: [userId], references: [id])
   orderItems         OrderItem[]
@@ -415,23 +415,24 @@ model MyOrder {
 }
 
 model JourneyPlan {
-  id                Int       @id @default(autoincrement())
-  date              DateTime
-  time              String
-  userId            Int?
-  clientId          Int
-  status            Int       @default(0)
-  checkInTime       DateTime?
-  latitude          Float?
-  longitude         Float?
-  imageUrl          String?
-  notes             String?
-  checkoutLatitude  Float?
-  checkoutLongitude Float?
-  checkoutTime      DateTime?
-  client            Clients   @relation(fields: [clientId], references: [id])
-  user              SalesRep? @relation(fields: [userId], references: [id])
-  reports           Report[]
+  id                 Int       @id @default(autoincrement())
+  date               DateTime
+  time               String
+  userId             Int?
+  clientId           Int
+  status             Int       @default(0)
+  checkInTime        DateTime?
+  latitude           Float?
+  longitude          Float?
+  imageUrl           String?
+  notes              String?
+  checkoutLatitude   Float?
+  checkoutLongitude  Float?
+  checkoutTime       DateTime?
+  showUpdateLocation Boolean   @default(true)
+  client             Clients   @relation(fields: [clientId], references: [id])
+  user               SalesRep? @relation(fields: [userId], references: [id])
+  reports            Report[]
 
   @@index([clientId])
   @@index([userId])

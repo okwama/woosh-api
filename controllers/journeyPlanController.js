@@ -11,10 +11,10 @@ const getSalesRepId = (req) => {
 // Create a new journey plan
 const createJourneyPlan = async (req, res) => {
   try {
-    const { clientId, date, notes } = req.body;
+    const { clientId, date, notes, showUpdateLocation } = req.body;
     const salesRepId = req.user.id;
 
-    console.log('Creating journey plan with:', { clientId, date, salesRepId, notes });
+    console.log('Creating journey plan with:', { clientId, date, salesRepId, notes, showUpdateLocation });
 
     // Input validation
     if (!clientId) {
@@ -69,6 +69,7 @@ const createJourneyPlan = async (req, res) => {
         clientId: parseInt(clientId),
         status: 0, // 0 for pending
         notes: notes,
+        showUpdateLocation: showUpdateLocation ?? true, // Use provided value or default to true
       },
       include: {
         client: true,
@@ -145,14 +146,16 @@ const updateJourneyPlan = async (req, res) => {
     notes,
     checkoutTime,
     checkoutLatitude,
-    checkoutLongitude 
+    checkoutLongitude,
+    showUpdateLocation 
   } = req.body;
 
   // Log request details for debugging
   console.log('[CHECKOUT LOG] Updating journey plan:', { 
     journeyId, clientId, status, checkInTime, 
     latitude, longitude, imageUrl, notes,
-    checkoutTime, checkoutLatitude, checkoutLongitude
+    checkoutTime, checkoutLatitude, checkoutLongitude,
+    showUpdateLocation
   });
 
   try {
@@ -198,69 +201,38 @@ const updateJourneyPlan = async (req, res) => {
     const currentStatus = REVERSE_STATUS_MAP[existingJourneyPlan.status];
     
     // Log status change if applicable
-    if (status) {
-      console.log(`[CHECKOUT LOG] Status changing from ${currentStatus} to ${status}`);
-    }
-    
-    // Log checkout data if provided
-    if (checkoutTime) {
-      console.log('[CHECKOUT LOG] Checkout data received:');
-      console.log(`[CHECKOUT LOG] Checkout Time: ${checkoutTime}`);
-      console.log(`[CHECKOUT LOG] Checkout Latitude: ${checkoutLatitude}`);
-      console.log(`[CHECKOUT LOG] Checkout Longitude: ${checkoutLongitude}`);
-    }
-
-    // Validate if client exists
-    if (clientId) {
-      const client = await prisma.clients.findUnique({
-        where: { id: parseInt(clientId) },
-      });
-
-      if (!client) {
-        return res.status(400).json({ error: 'Client not found' });
-      }
+    if (status !== undefined && status !== existingJourneyPlan.status) {
+      console.log(`Status change: ${currentStatus} -> ${REVERSE_STATUS_MAP[status]}`);
     }
 
     // Update the journey plan
     const updatedJourneyPlan = await prisma.journeyPlan.update({
       where: { id: parseInt(journeyId) },
       data: {
-        status: status ? STATUS_MAP[status] : existingJourneyPlan.status,
-        checkInTime: checkInTime ? new Date(checkInTime) : existingJourneyPlan.checkInTime,
-        latitude: latitude || existingJourneyPlan.latitude,
-        longitude: longitude || existingJourneyPlan.longitude,
-        imageUrl: imageUrl || existingJourneyPlan.imageUrl,
-        notes: notes !== undefined ? notes : existingJourneyPlan.notes,
-        checkoutTime: checkoutTime ? new Date(checkoutTime) : existingJourneyPlan.checkoutTime,
-        checkoutLatitude: checkoutLatitude || existingJourneyPlan.checkoutLatitude,
-        checkoutLongitude: checkoutLongitude || existingJourneyPlan.checkoutLongitude,
-        client: clientId
-          ? {
-              connect: { id: parseInt(clientId) },
-            }
-          : undefined,
+        clientId: clientId ? parseInt(clientId) : undefined,
+        status: status !== undefined ? parseInt(status) : undefined,
+        checkInTime: checkInTime ? new Date(checkInTime) : undefined,
+        latitude: latitude !== undefined ? parseFloat(latitude) : undefined,
+        longitude: longitude !== undefined ? parseFloat(longitude) : undefined,
+        imageUrl: imageUrl,
+        notes: notes,
+        checkoutTime: checkoutTime ? new Date(checkoutTime) : undefined,
+        checkoutLatitude: checkoutLatitude !== undefined ? parseFloat(checkoutLatitude) : undefined,
+        checkoutLongitude: checkoutLongitude !== undefined ? parseFloat(checkoutLongitude) : undefined,
+        showUpdateLocation: showUpdateLocation !== undefined ? Boolean(showUpdateLocation) : undefined,
       },
       include: {
         client: true,
       },
     });
 
-    // Log the updated journey plan
-    console.log('[CHECKOUT LOG] Journey plan updated successfully:');
-    console.log(`[CHECKOUT LOG] ID: ${updatedJourneyPlan.id}`);
-    console.log(`[CHECKOUT LOG] Status: ${REVERSE_STATUS_MAP[updatedJourneyPlan.status]}`);
-    console.log(`[CHECKOUT LOG] Checkout Time: ${updatedJourneyPlan.checkoutTime}`);
-    console.log(`[CHECKOUT LOG] Checkout Latitude: ${updatedJourneyPlan.checkoutLatitude}`);
-    console.log(`[CHECKOUT LOG] Checkout Longitude: ${updatedJourneyPlan.checkoutLongitude}`);
-
-    res.status(200).json({
-      ...updatedJourneyPlan,
-      status: REVERSE_STATUS_MAP[updatedJourneyPlan.status]
-    });
+    res.status(200).json(updatedJourneyPlan);
   } catch (error) {
-    // Handle errors
-    console.error('[CHECKOUT LOG] Error updating journey plan:', error);
-    res.status(500).json({ error: 'Failed to update journey plan' });
+    console.error('Error updating journey plan:', error);
+    res.status(500).json({ 
+      error: 'Failed to update journey plan',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
   }
 };
 
