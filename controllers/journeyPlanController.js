@@ -209,8 +209,7 @@ const updateJourneyPlan = async (req, res) => {
     const updatedJourneyPlan = await prisma.journeyPlan.update({
       where: { id: parseInt(journeyId) },
       data: {
-        clientId: clientId ? parseInt(clientId) : undefined,
-        status: status !== undefined ? parseInt(status) : undefined,
+        status: status !== undefined ? STATUS_MAP[status] : existingJourneyPlan.status,
         checkInTime: checkInTime ? new Date(checkInTime) : undefined,
         latitude: latitude !== undefined ? parseFloat(latitude) : undefined,
         longitude: longitude !== undefined ? parseFloat(longitude) : undefined,
@@ -220,6 +219,9 @@ const updateJourneyPlan = async (req, res) => {
         checkoutLatitude: checkoutLatitude !== undefined ? parseFloat(checkoutLatitude) : undefined,
         checkoutLongitude: checkoutLongitude !== undefined ? parseFloat(checkoutLongitude) : undefined,
         showUpdateLocation: showUpdateLocation !== undefined ? Boolean(showUpdateLocation) : undefined,
+        client: clientId ? {
+          connect: { id: parseInt(clientId) }
+        } : undefined
       },
       include: {
         client: true,
