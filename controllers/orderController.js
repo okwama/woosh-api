@@ -3,6 +3,7 @@ const asyncHandler = require('express-async-handler');
 const multer = require('multer');
 const path = require('path');
 const ImageKit = require('imagekit');
+const { Prisma } = require('@prisma/client');
 
 // Configure ImageKit
 const imagekit = new ImageKit({
@@ -605,8 +606,8 @@ const createOrder = asyncHandler(async (req, res) => {
           customerType: req.body.customerType || 'RETAIL',
           customerId: req.body.customerId || '',
           customerName: req.body.customerName || 'Customer',
-          amountPaid: 0,
-          balance: totalAmount,
+          amountPaid: new Prisma.Decimal(0),
+          balance: new Prisma.Decimal(totalAmount.toFixed(2)),
           approved_by: req.body.approved_by || "Unapproved",
           approved_by_name: req.body.approved_by_name || "Pending",
           storeId: storeId,
