@@ -121,7 +121,7 @@ const login = async (req, res) => {
       where: { phoneNumber },
       include: {
         Manager: true,
-        country: true
+        countryRelation: true
       }
     });
 
@@ -181,7 +181,7 @@ const login = async (req, res) => {
         region_id: salesRep.region_id,
         route_id: salesRep.route_id,
         countryId: salesRep.countryId,
-        country: salesRep.country
+        country: salesRep.countryRelation
       },
       token
     });
