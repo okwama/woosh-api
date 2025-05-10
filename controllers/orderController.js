@@ -28,689 +28,742 @@ const upload = multer({
   }
 }).single('image');
 
+// Helper function to upload buffer to ImageKit
+const uploadToImageKit = async (fileBuffer, fileName, folder) => {
+  try {
+    console.log('[Order Debug] Uploading file to ImageKit:', fileName);
+    
+    const result = await imagekit.upload({
+      file: fileBuffer,
+      fileName,
+      folder
+    });
+    
+    console.log('[Order Debug] File uploaded successfully to ImageKit:', result.url);
+    return result;
+  } catch (error) {
+    console.error('[Order Debug] ImageKit upload error:', error);
+    throw error;
+  }
+};
+
 const createOrder = asyncHandler(async (req, res) => {
   // Handle image upload first
   upload(req, res, async function(err) {
     if (err) {
+      console.error('[Order Debug] Multer error:', err);
       return res.status(400).json({
         success: false,
         error: err.message
       });
     }
 
-    // Get the region and country from the request
-    const { items = [], orderItems = [], regionId, countryId } = req.body;
-    // Extract clientId from request body or default to 1
-    const clientId = req.body.clientId || 1;
-    const orderItemsToUse = items.length > 0 ? items : orderItems;
-    
-    // Ensure we have a valid user ID from the authenticated user
-    const userId = req.user?.id;
-    
-    // Handle image upload if present
-    let imageUrl = null;
-    if (req.file) {
-      try {
-        const uploadResponse = await imagekit.upload({
-          file: req.file.buffer,
-          fileName: `order_${Date.now()}_${req.file.originalname}`,
-          folder: '/orders'
-        });
-        imageUrl = uploadResponse.url;
-        console.log('[Order Debug] Image uploaded successfully:', imageUrl);
-      } catch (error) {
-        console.error('[Order Debug] Image upload failed:', error);
-        return res.status(500).json({
-          success: false,
-          error: 'Failed to upload order image'
-        });
-      }
-    }
-    
-    console.log('[Order Debug] Authentication check:', {
-      hasUser: !!req.user,
-      userId: userId,
-      userDetails: req.user ? {
-        id: req.user.id,
-        name: req.user.name,
-        role: req.user.role
-      } : null
+    console.log('[Order Debug] Request body:', {
+      hasFile: !!req.file,
+      fileDetails: req.file ? {
+        originalname: req.file.originalname,
+        mimetype: req.file.mimetype,
+        size: req.file.size
+      } : null,
+      bodyImageUrl: req.body.imageUrl,
+      body: req.body
     });
-    
-    if (!userId) {
-      console.log('[Order Debug] Authentication failed: No user ID');
-      return res.status(401).json({
-        success: false,
-        error: 'Authentication required. Please log in again.'
-      });
-    }
-
-    // Debug log the request body
-    console.log('[Order Debug] Request body:', req.body);
-    console.log('[Order Debug] User:', req.user);
-    
-    // Ensure we have region and country IDs
-    const userRegionId = regionId || req.user?.region_id;
-    const userCountryId = countryId || req.user?.countryId;
-    
-    if (!userRegionId || !userCountryId) {
-      return res.status(400).json({
-        success: false,
-        error: 'Region and country are required'
-      });
-    }
-    
-    console.log('[Order Debug] Region settings:', { 
-      requestRegionId: regionId, 
-      requestCountryId: countryId,
-      userRegionId: userRegionId,
-      userCountryId: userCountryId,
-      finalRegionId: userRegionId,
-      finalCountryId: userCountryId
-      
-    });
-
-    const createdItems = [];
-
-    // Set region to country if regionId is null
-    const regionToUse = userRegionId || userCountryId;
-    console.log('[Order Debug] Using region:', {
-      providedRegionId: regionId,
-      providedCountryId: countryId,
-      regionToUse,
-      userRegionId: req.user?.region_id,
-      userCountryId: req.user?.countryId
-    });
-
-    for (const item of orderItemsToUse) {
-      console.log('--- [Order Debug] Processing item:', {
-        productId: item.productId,
-        requestedQuantity: item.quantity,
-        priceOptionId: item.priceOptionId
-      });
-      console.log('[Order Debug] Starting validation for item:', {
-        productId: item.productId,
-        quantity: item.quantity,
-        priceOptionId: item.priceOptionId,
-        userRegion: userRegionId,
-        userCountry: userCountryId
-      });
-
-      // First get the price option to validate it exists
-      const priceOption = await prisma.priceOption.findUnique({
-        where: { id: item.priceOptionId },
-        include: { category: true }
-      });
-
-      if (!priceOption) {
-        const error = `Price option ${item.priceOptionId} not found`;
-        console.log('[Order Debug] Validation failed:', error);
-        return res.status(400).json({ success: false, error });
-      }
-
-      console.log('[Order Debug] Found price option:', {
-        id: priceOption.id,
-        option: priceOption.option,
-        value: priceOption.value,
-        category: priceOption.category.name
-      });
-
-      // Get product with store quantities and store details
-      const product = await prisma.product.findUnique({
-        where: { id: item.productId },
-        include: {
-          storeQuantities: {
-            include: {
-              store: true
-            }
-          }
-        }
-      });
-
-      if (!product) {
-        const error = `Product ${item.productId} not found`;
-        console.log('[Order Debug] Validation failed:', error);
-        return res.status(400).json({ success: false, error });
-      }
-
-      console.log('[Order Debug] Found product:', {
-        id: product.id,
-        name: product.name,
-        category_id: product.category_id,
-        category: product.category,
-        totalStores: product.storeQuantities.length
-      });
-
-      // Validate that the price option's category matches the product's category
-      if (priceOption.categoryId !== product.category_id) {
-        const error = `Price option ${item.priceOptionId} (category ${priceOption.category.name}) is not valid for product ${product.name} (category ${product.category})`;
-        console.log('[Order Debug] Validation failed:', error);
-        return res.status(400).json({ success: false, error });
-      }
-
-      if (!product) {
-        return res.status(404).json({
-          success: false,
-          error: `Product with ID ${item.productId} not found`
-        });
-      }
-
-      console.log('[Order Debug] Checking store quantities for product:', {
-        productId: product.id,
-        productName: product.name,
-        totalStores: product.storeQuantities.length,
-        stores: product.storeQuantities.map(sq => ({
-          storeId: sq.store.id,
-          storeRegionId: sq.store.regionId,
-          storeCountryId: sq.store.countryId,
-          quantity: sq.quantity
-        }))
-      });
-
-      console.log('[Order Debug] Raw product data:', {
-        productId: product.id,
-        name: product.name,
-        allStores: product.storeQuantities.map(sq => ({
-          storeId: sq.store.id,
-          quantity: sq.quantity,
-          regionId: sq.store.regionId,
-          region_id: sq.store.region_id,
-          countryId: sq.store.countryId
-        }))
-      });
-
-      console.log('[Order Debug] User region/country:', {
-        userRegionId,
-        userCountryId
-      });
-
-      // First filter: Get all active stores
-      const activeStores = product.storeQuantities.filter(sq => {
-        const store = sq.store;
-        
-        // Store must be active
-        if (store.status !== 0) {
-          console.log(`[Order Debug] Store ${store.id} (${store.name}) skipped: inactive (status ${store.status})`);
-          return false;
-        }
-        
-        return true;
-      });
-      
-      console.log('[Order Debug] Active stores:', {
-        total: activeStores.length,
-        stores: activeStores.map(sq => ({
-          id: sq.store.id,
-          name: sq.store.name,
-          regionId: sq.store.regionId || sq.store.region_id,
-          countryId: sq.store.countryId,
-          quantity: sq.quantity
-        }))
-      });
-      
-      // Second filter: Get region-matching stores (primary preference)
-      const regionMatchingStores = activeStores.filter(sq => {
-        const store = sq.store;
-        const storeRegionId = store.regionId || store.region_id;
-        
-        // Store matches if its region matches user's region
-        const matches = storeRegionId === userRegionId;
-        
-        if (matches) {
-          console.log(`[Order Debug] Store ${store.id} (${store.name}) matched region:`, {
-            storeRegionId,
-            userRegionId
-          });
-        }
-        
-        return matches;
-      });
-      
-      // Third filter: Get country-level stores (fallback)
-      const countryMatchingStores = activeStores.filter(sq => {
-        const store = sq.store;
-        const storeRegionId = store.regionId || store.region_id;
-        const storeCountryId = store.countryId;
-        
-        // Store matches if it has no region (country-level store) and matches country
-        const matches = !storeRegionId && storeCountryId === userCountryId;
-        
-        if (matches) {
-          console.log(`[Order Debug] Store ${store.id} (${store.name}) matched country:`, {
-            storeCountryId,
-            userCountryId,
-            reason: 'country-level store'
-          });
-        }
-        
-        return matches;
-      });
-      
-      console.log('[Order Debug] Region and country matching stores:', {
-        regionMatches: regionMatchingStores.length,
-        countryMatches: countryMatchingStores.length,
-        regionStock: regionMatchingStores.reduce((sum, sq) => sum + Number(sq.quantity || 0), 0),
-        countryStock: countryMatchingStores.reduce((sum, sq) => sum + Number(sq.quantity || 0), 0)
-      });
-      
-      // Combine both region and country stores for maximum availability
-      let availableStoreQuantities = [...regionMatchingStores, ...countryMatchingStores];
-      
-      console.log('[Order Debug] Available stores after filtering:', {
-        total: product.storeQuantities.length,
-        matching: availableStoreQuantities.length,
-        stores: availableStoreQuantities.map(sq => ({
-          id: sq.store.id,
-          name: sq.store.name,
-          quantity: sq.quantity,
-          regionId: sq.store.regionId,
-          region_id: sq.store.region_id,
-          countryId: sq.store.countryId
-        }))
-      });
-
-      // Log raw quantities for debugging
-      console.log('[Order Debug] Raw quantities before calculation:', {
-        allStores: product.storeQuantities.map(sq => ({
-          storeId: sq.store.id,
-          name: sq.store.name,
-          quantity: sq.quantity,
-          quantityType: typeof sq.quantity,
-          regionId: sq.store.regionId,
-          region_id: sq.store.region_id,
-          countryId: sq.store.countryId,
-          status: sq.store.status
-        }))
-      });
-      
-      // Calculate total available quantity from matching stores
-      const totalAvailableQuantity = availableStoreQuantities.reduce((sum, sq) => {
-        // Ensure quantity is a number
-        const quantity = sq.quantity !== null && sq.quantity !== undefined ? Number(sq.quantity) : 0;
-        
-        console.log(`[Order Debug] Adding quantity from store ${sq.store.id} (${sq.store.name}):`, {
-          originalQuantity: sq.quantity,
-          originalType: typeof sq.quantity,
-          convertedQuantity: quantity,
-          convertedType: typeof quantity,
-          currentSum: sum
-        });
-        
-        return sum + quantity;
-      }, 0);
-      
-      console.log('[Order Debug] Final stock calculation:', {
-        productId: product.id,
-        productName: product.name,
-        totalStores: availableStoreQuantities.length,
-        totalAvailable: totalAvailableQuantity,
-        requestedQuantity: item.quantity,
-        matchingStores: availableStoreQuantities.map(sq => ({
-          storeId: sq.store.id,
-          name: sq.store.name,
-          regionId: sq.store.regionId,
-          region_id: sq.store.region_id,
-          countryId: sq.store.countryId,
-          quantity: sq.quantity,
-          status: sq.store.status
-        }))
-      });
-
-      // Check if we have any active stores at all for this product
-      if (activeStores.length === 0) {
-        const error = `No active stores found with stock for product ${product.name}.`;
-        console.log('[Order Debug] No active stores found:', {
-          productId: product.id,
-          productName: product.name,
-          totalStores: product.storeQuantities.length
-        });
-        return res.status(400).json({ success: false, error });
-      }
-      
-      // Check if we have any region or country matching stores
-      if (availableStoreQuantities.length === 0) {
-        // Get stock information for debugging
-        const regionStock = regionMatchingStores.reduce((sum, sq) => sum + Number(sq.quantity || 0), 0);
-        const countryStock = countryMatchingStores.reduce((sum, sq) => sum + Number(sq.quantity || 0), 0);
-        const totalActiveStock = activeStores.reduce((sum, sq) => sum + Number(sq.quantity || 0), 0);
-        
-        const error = `No stock available for product ${product.name} in your region (${userRegionId}) or country (${userCountryId}). Please contact support.`;
-        console.log('[Order Debug] No matching stores found:', {
-          productId: product.id,
-          productName: product.name,
-          userRegion: userRegionId,
-          userCountry: userCountryId,
-          totalStores: product.storeQuantities.length,
-          activeStores: activeStores.length,
-          regionMatchingStores: regionMatchingStores.length,
-          countryMatchingStores: countryMatchingStores.length,
-          regionStock,
-          countryStock,
-          totalActiveStock
-        });
-        return res.status(400).json({ success: false, error });
-      }
-      
-      // Ensure item.quantity is a number
-      const requestedQuantity = Number(item.quantity);
-      
-      // Calculate available stock in region and country
-      const regionStock = regionMatchingStores.reduce((sum, sq) => sum + Number(sq.quantity || 0), 0);
-      const countryStock = countryMatchingStores.reduce((sum, sq) => sum + Number(sq.quantity || 0), 0);
-      
-      console.log('[Order Debug] Stock availability:', {
-        productName: product.name,
-        requestedQuantity,
-        regionStock,
-        countryStock,
-        selectedStock: totalAvailableQuantity,
-        usingRegionStock: regionMatchingStores.length > 0
-      });
-      
-      // Check if we have sufficient stock in either region or country
-      if (isNaN(totalAvailableQuantity) || totalAvailableQuantity === 0 || totalAvailableQuantity < requestedQuantity) {
-        // If region stock is insufficient, check if country stock would be sufficient
-        if (countryStock >= requestedQuantity && regionMatchingStores.length > 0) {
-          // Switch to country-level stores if they have sufficient stock
-          console.log('[Order Debug] Switching to country-level stores due to insufficient region stock');
-          availableStoreQuantities = countryMatchingStores;
-          totalAvailableQuantity = countryStock;
-        } else {
-          // Neither region nor country has sufficient stock
-          let errorMsg = '';
-          if (regionMatchingStores.length > 0) {
-            errorMsg = `Insufficient stock for product ${product.name}. You requested ${requestedQuantity} units but only ${regionStock} units are available in your region and ${countryStock} units in your country.`;
-          } else {
-            errorMsg = `Insufficient stock for product ${product.name}. You requested ${requestedQuantity} units but only ${countryStock} units are available in your country.`;
-          }
-          
-          console.log('[Order Debug] Insufficient stock:', {
-            productId: product.id,
-            productName: product.name,
-            requested: requestedQuantity,
-            regionStock,
-            countryStock,
-            regionStores: regionMatchingStores.length,
-            countryStores: countryMatchingStores.length
-          });
-          
-          return res.status(400).json({ success: false, error: errorMsg });
-        }
-      }
-      
-      console.log('[Order Debug] ✅ Stock validation passed:', {
-        product: product.name,
-        requested: item.quantity,
-        available: totalAvailableQuantity,
-        stores: availableStoreQuantities.map(sq => ({
-          store: sq.store.name,
-          quantity: sq.quantity,
-          regionId: sq.store.regionId,
-          region_id: sq.store.region_id,
-          countryId: sq.store.countryId
-        }))
-      });
-
-      console.log('[Order Debug] Available store quantities:', availableStoreQuantities);
-      
-      // Find the store with the highest quantity for fulfillment
-      const maxQuantityStore = availableStoreQuantities.reduce((max, sq) =>
-        sq.quantity > (max?.quantity || 0) ? sq : max,
-        null
-      );
-
-      console.log('[Order Debug] Availability summary:', {
-        totalStores: availableStoreQuantities.length,
-        totalQuantityAvailable: totalAvailableQuantity,
-        requestedQuantity: item.quantity,
-        bestStoreId: maxQuantityStore?.store?.id,
-        bestStoreQuantity: maxQuantityStore?.quantity
-      });
-
-      console.log('[Order Debug] Max available quantity for product', product.name, 'in selected store:', {
-        store: maxQuantityStore ? maxQuantityStore.storeId : null,
-        maxQuantity: totalAvailableQuantity,
-        requestedQuantity: item.quantity
-      });
-      console.log('[Order Debug] Stock availability result:', {
-        productId: product.id,
-        productName: product.name,
-        requestedQuantity: item.quantity
-      });
-
-      // Store the item information for later use
-      createdItems.push({
-        productId: item.productId,
-        quantity: item.quantity,
-        priceOptionId: item.priceOptionId,
-        storeId: maxQuantityStore.store.id,
-        store: maxQuantityStore.store,
-        originalQuantity: maxQuantityStore.quantity
-      });
-    }
 
     try {
-      console.log('[Order Debug] Processing order items for batch operations');
+      // Handle image upload first, before any other processing
+      let imageUrl = null;
+      if (req.file) {
+        try {
+          const folder = 'orders';
+          const uniqueFilename = `${Date.now()}-${Math.round(Math.random() * 1E9)}${path.extname(req.file.originalname)}`;
+          
+          const result = await uploadToImageKit(req.file.buffer, uniqueFilename, folder);
+          imageUrl = result.url;
+          console.log('[Order Debug] ImageKit upload successful:', {
+            imageUrl,
+            result
+          });
+        } catch (error) {
+          console.error('[Order Debug] ImageKit upload failed:', error);
+          return res.status(500).json({
+            success: false,
+            error: 'Failed to upload order image'
+          });
+        }
+      }
+
+      // Get the region and country from the request
+      const { items = [], orderItems = [], regionId, countryId } = req.body;
+      // Extract clientId from request body or default to 1
+      const clientId = req.body.clientId || 1;
+      const orderItemsToUse = items.length > 0 ? items : orderItems;
       
-      // Gather all productIds and priceOptionIds for batch operations
-      const productIds = orderItemsToUse.map(item => item.productId);
-      const priceOptionIds = orderItemsToUse.map(item => item.priceOptionId).filter(Boolean);
+      // Ensure we have a valid user ID from the authenticated user
+      const userId = req.user?.id;
       
-      console.log('[Order Debug] Batch fetching data:', {
-        productIds,
-        priceOptionIds
+      // Use either the uploaded image URL or the one from request body
+      const finalImageUrl = imageUrl || req.body.imageUrl || null;
+      console.log('[Order Debug] Final image URL:', finalImageUrl);
+      
+      console.log('[Order Debug] Authentication check:', {
+        hasUser: !!req.user,
+        userId: userId,
+        userDetails: req.user ? {
+          id: req.user.id,
+          name: req.user.name,
+          role: req.user.role
+        } : null
       });
       
-      // Batch fetch products
-      const products = await prisma.product.findMany({
-        where: { id: { in: productIds } }
-      });
-      const productsById = Object.fromEntries(products.map(p => [p.id, p]));
-      
-      // Batch fetch categories with price options
-      const categoryIds = [...new Set(products.map(p => p.category_id).filter(Boolean))];
-      const categories = await prisma.category.findMany({
-        where: { id: { in: categoryIds } },
-        include: { priceOptions: true }
-      });
-      const categoriesById = Object.fromEntries(categories.map(c => [c.id, c]));
-      
-      console.log('[Order Debug] Batch fetched data:', {
-        products: products.length,
-        categories: categories.length
-      });
-      
-      // Calculate total amount and prepare order items data
-      let totalAmount = 0;
-      const orderItemsData = [];
-      const validItems = [];
-      
-      for (const item of orderItemsToUse) {
-        const product = productsById[item.productId];
-        if (!product) {
-          console.log(`[Order Debug] Product ${item.productId} not found in batch results, skipping`);
-          continue;
-        }
-        
-        const category = categoriesById[product.category_id];
-        if (!category) {
-          console.log(`[Order Debug] Category for product ${product.id} not found, skipping`);
-          continue;
-        }
-        
-        let itemPrice = 0;
-        let priceOptionId = null;
-        
-        if (item.priceOptionId) {
-          const priceOption = category.priceOptions.find(po => po.id === item.priceOptionId);
-          if (priceOption) {
-            itemPrice = priceOption.value || 0;
-            priceOptionId = priceOption.id;
-          } else {
-            console.log(`[Order Debug] Price option ${item.priceOptionId} not found for product ${product.id}, using default price`);
-          }
-        }
-        
-        // Use the store information from createdItems if available
-        const createdItem = createdItems.find(ci => ci.productId === item.productId);
-        const storeId = createdItem ? createdItem.storeId : null;
-        
-        if (!storeId) {
-          console.log(`[Order Debug] No store found for product ${product.id}, skipping`);
-          continue;
-        }
-        
-        totalAmount += itemPrice * item.quantity;
-        
-        orderItemsData.push({
-          quantity: item.quantity,
-          productId: item.productId,
-          priceOptionId: priceOptionId,
-          storeId: storeId
-        });
-        
-        validItems.push({
-          ...item,
-          storeId,
-          itemPrice
+      if (!userId) {
+        console.log('[Order Debug] Authentication failed: No user ID');
+        return res.status(401).json({
+          success: false,
+          error: 'Authentication required. Please log in again.'
         });
       }
+
+      // Debug log the request body
+      console.log('[Order Debug] Request body:', req.body);
+      console.log('[Order Debug] User:', req.user);
       
-      if (orderItemsData.length === 0) {
+      // Ensure we have region and country IDs
+      const userRegionId = regionId || req.user?.region_id;
+      const userCountryId = countryId || req.user?.countryId;
+      
+      if (!userRegionId || !userCountryId) {
         return res.status(400).json({
           success: false,
-          error: 'No valid order items to process'
+          error: 'Region and country are required'
         });
       }
       
-      console.log('[Order Debug] Prepared order data:', {
-        totalAmount,
-        validItems: orderItemsData.length
+      console.log('[Order Debug] Region settings:', { 
+        requestRegionId: regionId, 
+        requestCountryId: countryId,
+        userRegionId: userRegionId,
+        userCountryId: userCountryId,
+        finalRegionId: userRegionId,
+        finalCountryId: userCountryId
+        
       });
-      
-      // Get the store ID from the first item
-      const storeId = orderItemsToUse[0]?.storeId;
-      
-      console.log('[Order Debug] Using store ID:', storeId);
-      
-      // Create the order first (outside transaction)
-      const newOrder = await prisma.myOrder.create({
-        data: {
-          user: {
-            connect: {
-              id: userId
-            }
-          },
-          totalAmount: parseFloat((totalAmount || 0).toFixed(2)),
-          comment: req.body.comment || '',
-          customerType: req.body.customerType || 'RETAIL',
-          customerId: req.body.customerId || '',
-          customerName: req.body.customerName || 'Customer',
-          amountPaid: new Prisma.Decimal(0),
-          balance: new Prisma.Decimal(totalAmount.toFixed(2)),
-          approved_by: req.body.approved_by || "Unapproved",
-          approved_by_name: req.body.approved_by_name || "Pending",
-          storeId: storeId,
-          imageUrl: imageUrl,
-          client: {
-            connect: {
-              id: clientId
+
+      const createdItems = [];
+
+      // Set region to country if regionId is null
+      const regionToUse = userRegionId || userCountryId;
+      console.log('[Order Debug] Using region:', {
+        providedRegionId: regionId,
+        providedCountryId: countryId,
+        regionToUse,
+        userRegionId: req.user?.region_id,
+        userCountryId: req.user?.countryId
+      });
+
+      for (const item of orderItemsToUse) {
+        console.log('--- [Order Debug] Processing item:', {
+          productId: item.productId,
+          requestedQuantity: item.quantity,
+          priceOptionId: item.priceOptionId
+        });
+        console.log('[Order Debug] Starting validation for item:', {
+          productId: item.productId,
+          quantity: item.quantity,
+          priceOptionId: item.priceOptionId,
+          userRegion: userRegionId,
+          userCountry: userCountryId
+        });
+
+        // First get the price option to validate it exists
+        const priceOption = await prisma.priceOption.findUnique({
+          where: { id: item.priceOptionId },
+          include: { category: true }
+        });
+
+        if (!priceOption) {
+          const error = `Price option ${item.priceOptionId} not found`;
+          console.log('[Order Debug] Validation failed:', error);
+          return res.status(400).json({ success: false, error });
+        }
+
+        console.log('[Order Debug] Found price option:', {
+          id: priceOption.id,
+          option: priceOption.option,
+          value: priceOption.value,
+          category: priceOption.category.name
+        });
+
+        // Get product with store quantities and store details
+        const product = await prisma.product.findUnique({
+          where: { id: item.productId },
+          include: {
+            storeQuantities: {
+              include: {
+                store: true
+              }
             }
           }
+        });
+
+        if (!product) {
+          const error = `Product ${item.productId} not found`;
+          console.log('[Order Debug] Validation failed:', error);
+          return res.status(400).json({ success: false, error });
         }
-      });
-      
-      console.log('[Order Debug] Created order:', {
-        orderId: newOrder.id
-      });
-      
-      // Create order items in a transaction with a longer timeout
-      await prisma.$transaction(
-        async (tx) => {
-          // Create order items and update store quantities
-          for (const item of validItems) {
-            // Update store quantity
-            const createdItem = createdItems.find(ci => ci.productId === item.productId);
+
+        console.log('[Order Debug] Found product:', {
+          id: product.id,
+          name: product.name,
+          category_id: product.category_id,
+          category: product.category,
+          totalStores: product.storeQuantities.length
+        });
+
+        // Validate that the price option's category matches the product's category
+        if (priceOption.categoryId !== product.category_id) {
+          const error = `Price option ${item.priceOptionId} (category ${priceOption.category.name}) is not valid for product ${product.name} (category ${product.category})`;
+          console.log('[Order Debug] Validation failed:', error);
+          return res.status(400).json({ success: false, error });
+        }
+
+        if (!product) {
+          return res.status(404).json({
+            success: false,
+            error: `Product with ID ${item.productId} not found`
+          });
+        }
+
+        console.log('[Order Debug] Checking store quantities for product:', {
+          productId: product.id,
+          productName: product.name,
+          totalStores: product.storeQuantities.length,
+          stores: product.storeQuantities.map(sq => ({
+            storeId: sq.store.id,
+            storeRegionId: sq.store.regionId,
+            storeCountryId: sq.store.countryId,
+            quantity: sq.quantity
+          }))
+        });
+
+        console.log('[Order Debug] Raw product data:', {
+          productId: product.id,
+          name: product.name,
+          allStores: product.storeQuantities.map(sq => ({
+            storeId: sq.store.id,
+            quantity: sq.quantity,
+            regionId: sq.store.regionId,
+            region_id: sq.store.region_id,
+            countryId: sq.store.countryId
+          }))
+        });
+
+        console.log('[Order Debug] User region/country:', {
+          userRegionId,
+          userCountryId
+        });
+
+        // First filter: Get all active stores
+        const activeStores = product.storeQuantities.filter(sq => {
+          const store = sq.store;
+          
+          // Store must be active
+          if (store.status !== 0) {
+            console.log(`[Order Debug] Store ${store.id} (${store.name}) skipped: inactive (status ${store.status})`);
+            return false;
+          }
+          
+          return true;
+        });
+        
+        console.log('[Order Debug] Active stores:', {
+          total: activeStores.length,
+          stores: activeStores.map(sq => ({
+            id: sq.store.id,
+            name: sq.store.name,
+            regionId: sq.store.regionId || sq.store.region_id,
+            countryId: sq.store.countryId,
+            quantity: sq.quantity
+          }))
+        });
+        
+        // Second filter: Get region-matching stores (primary preference)
+        const regionMatchingStores = activeStores.filter(sq => {
+          const store = sq.store;
+          const storeRegionId = store.regionId || store.region_id;
+          
+          // Store matches if its region matches user's region
+          const matches = storeRegionId === userRegionId;
+          
+          if (matches) {
+            console.log(`[Order Debug] Store ${store.id} (${store.name}) matched region:`, {
+              storeRegionId,
+              userRegionId
+            });
+          }
+          
+          return matches;
+        });
+        
+        // Third filter: Get country-level stores (fallback)
+        const countryMatchingStores = activeStores.filter(sq => {
+          const store = sq.store;
+          const storeRegionId = store.regionId || store.region_id;
+          const storeCountryId = store.countryId;
+          
+          // Store matches if it has no region (country-level store) and matches country
+          const matches = !storeRegionId && storeCountryId === userCountryId;
+          
+          if (matches) {
+            console.log(`[Order Debug] Store ${store.id} (${store.name}) matched country:`, {
+              storeCountryId,
+              userCountryId,
+              reason: 'country-level store'
+            });
+          }
+          
+          return matches;
+        });
+        
+        console.log('[Order Debug] Region and country matching stores:', {
+          regionMatches: regionMatchingStores.length,
+          countryMatches: countryMatchingStores.length,
+          regionStock: regionMatchingStores.reduce((sum, sq) => sum + Number(sq.quantity || 0), 0),
+          countryStock: countryMatchingStores.reduce((sum, sq) => sum + Number(sq.quantity || 0), 0)
+        });
+        
+        // Combine both region and country stores for maximum availability
+        let availableStoreQuantities = [...regionMatchingStores, ...countryMatchingStores];
+        
+        console.log('[Order Debug] Available stores after filtering:', {
+          total: product.storeQuantities.length,
+          matching: availableStoreQuantities.length,
+          stores: availableStoreQuantities.map(sq => ({
+            id: sq.store.id,
+            name: sq.store.name,
+            quantity: sq.quantity,
+            regionId: sq.store.regionId,
+            region_id: sq.store.region_id,
+            countryId: sq.store.countryId
+          }))
+        });
+
+        // Log raw quantities for debugging
+        console.log('[Order Debug] Raw quantities before calculation:', {
+          allStores: product.storeQuantities.map(sq => ({
+            storeId: sq.store.id,
+            name: sq.store.name,
+            quantity: sq.quantity,
+            quantityType: typeof sq.quantity,
+            regionId: sq.store.regionId,
+            region_id: sq.store.region_id,
+            countryId: sq.store.countryId,
+            status: sq.store.status
+          }))
+        });
+        
+        // Calculate total available quantity from matching stores
+        const totalAvailableQuantity = availableStoreQuantities.reduce((sum, sq) => {
+          // Ensure quantity is a number
+          const quantity = sq.quantity !== null && sq.quantity !== undefined ? Number(sq.quantity) : 0;
+          
+          console.log(`[Order Debug] Adding quantity from store ${sq.store.id} (${sq.store.name}):`, {
+            originalQuantity: sq.quantity,
+            originalType: typeof sq.quantity,
+            convertedQuantity: quantity,
+            convertedType: typeof quantity,
+            currentSum: sum
+          });
+          
+          return sum + quantity;
+        }, 0);
+        
+        console.log('[Order Debug] Final stock calculation:', {
+          productId: product.id,
+          productName: product.name,
+          totalStores: availableStoreQuantities.length,
+          totalAvailable: totalAvailableQuantity,
+          requestedQuantity: item.quantity,
+          matchingStores: availableStoreQuantities.map(sq => ({
+            storeId: sq.store.id,
+            name: sq.store.name,
+            regionId: sq.store.regionId,
+            region_id: sq.store.region_id,
+            countryId: sq.store.countryId,
+            quantity: sq.quantity,
+            status: sq.store.status
+          }))
+        });
+
+        // Check if we have any active stores at all for this product
+        if (activeStores.length === 0) {
+          const error = `No active stores found with stock for product ${product.name}.`;
+          console.log('[Order Debug] No active stores found:', {
+            productId: product.id,
+            productName: product.name,
+            totalStores: product.storeQuantities.length
+          });
+          return res.status(400).json({ success: false, error });
+        }
+        
+        // Check if we have any region or country matching stores
+        if (availableStoreQuantities.length === 0) {
+          // Get stock information for debugging
+          const regionStock = regionMatchingStores.reduce((sum, sq) => sum + Number(sq.quantity || 0), 0);
+          const countryStock = countryMatchingStores.reduce((sum, sq) => sum + Number(sq.quantity || 0), 0);
+          const totalActiveStock = activeStores.reduce((sum, sq) => sum + Number(sq.quantity || 0), 0);
+          
+          const error = `No stock available for product ${product.name} in your region (${userRegionId}) or country (${userCountryId}). Please contact support.`;
+          console.log('[Order Debug] No matching stores found:', {
+            productId: product.id,
+            productName: product.name,
+            userRegion: userRegionId,
+            userCountry: userCountryId,
+            totalStores: product.storeQuantities.length,
+            activeStores: activeStores.length,
+            regionMatchingStores: regionMatchingStores.length,
+            countryMatchingStores: countryMatchingStores.length,
+            regionStock,
+            countryStock,
+            totalActiveStock
+          });
+          return res.status(400).json({ success: false, error });
+        }
+        
+        // Ensure item.quantity is a number
+        const requestedQuantity = Number(item.quantity);
+        
+        // Calculate available stock in region and country
+        const regionStock = regionMatchingStores.reduce((sum, sq) => sum + Number(sq.quantity || 0), 0);
+        const countryStock = countryMatchingStores.reduce((sum, sq) => sum + Number(sq.quantity || 0), 0);
+        
+        console.log('[Order Debug] Stock availability:', {
+          productName: product.name,
+          requestedQuantity,
+          regionStock,
+          countryStock,
+          selectedStock: totalAvailableQuantity,
+          usingRegionStock: regionMatchingStores.length > 0
+        });
+        
+        // Check if we have sufficient stock in either region or country
+        if (isNaN(totalAvailableQuantity) || totalAvailableQuantity === 0 || totalAvailableQuantity < requestedQuantity) {
+          // If region stock is insufficient, check if country stock would be sufficient
+          if (countryStock >= requestedQuantity && regionMatchingStores.length > 0) {
+            // Switch to country-level stores if they have sufficient stock
+            console.log('[Order Debug] Switching to country-level stores due to insufficient region stock');
+            availableStoreQuantities = countryMatchingStores;
+            totalAvailableQuantity = countryStock;
+          } else {
+            // Neither region nor country has sufficient stock
+            let errorMsg = '';
+            if (regionMatchingStores.length > 0) {
+              errorMsg = `Insufficient stock for product ${product.name}. You requested ${requestedQuantity} units but only ${regionStock} units are available in your region and ${countryStock} units in your country.`;
+            } else {
+              errorMsg = `Insufficient stock for product ${product.name}. You requested ${requestedQuantity} units but only ${countryStock} units are available in your country.`;
+            }
             
-            if (createdItem) {
-              // Find the store quantity record first
-              const storeQuantity = await tx.storeQuantity.findFirst({
-                where: {
-                  storeId: item.storeId,
-                  productId: item.productId
-                }
-              });
+            console.log('[Order Debug] Insufficient stock:', {
+              productId: product.id,
+              productName: product.name,
+              requested: requestedQuantity,
+              regionStock,
+              countryStock,
+              regionStores: regionMatchingStores.length,
+              countryStores: countryMatchingStores.length
+            });
+            
+            return res.status(400).json({ success: false, error: errorMsg });
+          }
+        }
+        
+        console.log('[Order Debug] ✅ Stock validation passed:', {
+          product: product.name,
+          requested: item.quantity,
+          available: totalAvailableQuantity,
+          stores: availableStoreQuantities.map(sq => ({
+            store: sq.store.name,
+            quantity: sq.quantity,
+            regionId: sq.store.regionId,
+            region_id: sq.store.region_id,
+            countryId: sq.store.countryId
+          }))
+        });
+
+        console.log('[Order Debug] Available store quantities:', availableStoreQuantities);
+        
+        // Find the store with the highest quantity for fulfillment
+        const maxQuantityStore = availableStoreQuantities.reduce((max, sq) =>
+          sq.quantity > (max?.quantity || 0) ? sq : max,
+          null
+        );
+
+        console.log('[Order Debug] Availability summary:', {
+          totalStores: availableStoreQuantities.length,
+          totalQuantityAvailable: totalAvailableQuantity,
+          requestedQuantity: item.quantity,
+          bestStoreId: maxQuantityStore?.store?.id,
+          bestStoreQuantity: maxQuantityStore?.quantity
+        });
+
+        console.log('[Order Debug] Max available quantity for product', product.name, 'in selected store:', {
+          store: maxQuantityStore ? maxQuantityStore.storeId : null,
+          maxQuantity: totalAvailableQuantity,
+          requestedQuantity: item.quantity
+        });
+        console.log('[Order Debug] Stock availability result:', {
+          productId: product.id,
+          productName: product.name,
+          requestedQuantity: item.quantity
+        });
+
+        // Store the item information for later use
+        createdItems.push({
+          productId: item.productId,
+          quantity: item.quantity,
+          priceOptionId: item.priceOptionId,
+          storeId: maxQuantityStore.store.id,
+          store: maxQuantityStore.store,
+          originalQuantity: maxQuantityStore.quantity
+        });
+      }
+
+      try {
+        console.log('[Order Debug] Processing order items for batch operations');
+        
+        // Gather all productIds and priceOptionIds for batch operations
+        const productIds = orderItemsToUse.map(item => item.productId);
+        const priceOptionIds = orderItemsToUse.map(item => item.priceOptionId).filter(Boolean);
+        
+        console.log('[Order Debug] Batch fetching data:', {
+          productIds,
+          priceOptionIds
+        });
+        
+        // Batch fetch products
+        const products = await prisma.product.findMany({
+          where: { id: { in: productIds } }
+        });
+        const productsById = Object.fromEntries(products.map(p => [p.id, p]));
+        
+        // Batch fetch categories with price options
+        const categoryIds = [...new Set(products.map(p => p.category_id).filter(Boolean))];
+        const categories = await prisma.category.findMany({
+          where: { id: { in: categoryIds } },
+          include: { priceOptions: true }
+        });
+        const categoriesById = Object.fromEntries(categories.map(c => [c.id, c]));
+        
+        console.log('[Order Debug] Batch fetched data:', {
+          products: products.length,
+          categories: categories.length
+        });
+        
+        // Calculate total amount and prepare order items data
+        let totalAmount = 0;
+        const orderItemsData = [];
+        const validItems = [];
+        
+        for (const item of orderItemsToUse) {
+          const product = productsById[item.productId];
+          if (!product) {
+            console.log(`[Order Debug] Product ${item.productId} not found in batch results, skipping`);
+            continue;
+          }
+          
+          const category = categoriesById[product.category_id];
+          if (!category) {
+            console.log(`[Order Debug] Category for product ${product.id} not found, skipping`);
+            continue;
+          }
+          
+          let itemPrice = 0;
+          let priceOptionId = null;
+          
+          if (item.priceOptionId) {
+            const priceOption = category.priceOptions.find(po => po.id === item.priceOptionId);
+            if (priceOption) {
+              itemPrice = priceOption.value || 0;
+              priceOptionId = priceOption.id;
+            } else {
+              console.log(`[Order Debug] Price option ${item.priceOptionId} not found for product ${product.id}, using default price`);
+            }
+          }
+          
+          // Use the store information from createdItems if available
+          const createdItem = createdItems.find(ci => ci.productId === item.productId);
+          const storeId = createdItem ? createdItem.storeId : null;
+          
+          if (!storeId) {
+            console.log(`[Order Debug] No store found for product ${product.id}, skipping`);
+            continue;
+          }
+          
+          totalAmount += itemPrice * item.quantity;
+          
+          orderItemsData.push({
+            quantity: item.quantity,
+            productId: item.productId,
+            priceOptionId: priceOptionId,
+            storeId: storeId
+          });
+          
+          validItems.push({
+            ...item,
+            storeId,
+            itemPrice
+          });
+        }
+        
+        if (orderItemsData.length === 0) {
+          return res.status(400).json({
+            success: false,
+            error: 'No valid order items to process'
+          });
+        }
+        
+        console.log('[Order Debug] Prepared order data:', {
+          totalAmount,
+          validItems: orderItemsData.length
+        });
+        
+        // Get the store ID from the first item
+        const storeId = orderItemsToUse[0]?.storeId;
+        
+        console.log('[Order Debug] Using store ID:', storeId);
+        
+        // Create the order first (outside transaction)
+        console.log('[Order Debug] Creating order with image URL:', {
+          imageUrl,
+          bodyImageUrl: req.body.imageUrl,
+          finalImageUrl: imageUrl || req.body.imageUrl || null
+        });
+
+        const newOrder = await prisma.myOrder.create({
+          data: {
+            user: {
+              connect: {
+                id: userId
+              }
+            },
+            totalAmount: parseFloat((totalAmount || 0).toFixed(2)),
+            comment: req.body.comment || '',
+            customerType: req.body.customerType || 'RETAIL',
+            customerId: req.body.customerId || '',
+            customerName: req.body.customerName || 'Customer',
+            amountPaid: new Prisma.Decimal("0.00"),
+            balance: new Prisma.Decimal(totalAmount.toFixed(2)),
+            approved_by: req.body.approved_by || "Unapproved",
+            approved_by_name: req.body.approved_by_name || "Pending",
+            storeId: storeId,
+            imageUrl: imageUrl || req.body.imageUrl || null,
+            client: {
+              connect: {
+                id: clientId
+              }
+            }
+          }
+        });
+
+        console.log('[Order Debug] Order created successfully:', {
+          orderId: newOrder.id,
+          imageUrl: newOrder.imageUrl
+        });
+        
+        // Create order items in a transaction with a longer timeout
+        await prisma.$transaction(
+          async (tx) => {
+            // Create order items and update store quantities
+            for (const item of validItems) {
+              // Update store quantity
+              const createdItem = createdItems.find(ci => ci.productId === item.productId);
               
-              if (storeQuantity) {
-                await tx.storeQuantity.update({
-                  where: { id: storeQuantity.id },
-                  data: {
-                    quantity: { decrement: item.quantity }
+              if (createdItem) {
+                // Find the store quantity record first
+                const storeQuantity = await tx.storeQuantity.findFirst({
+                  where: {
+                    storeId: item.storeId,
+                    productId: item.productId
                   }
                 });
                 
-                console.log('[Order Debug] Updated store quantity:', {
-                  storeId: item.storeId,
-                  productId: item.productId,
-                  decremented: item.quantity
-                });
+                if (storeQuantity) {
+                  await tx.storeQuantity.update({
+                    where: { id: storeQuantity.id },
+                    data: {
+                      quantity: { decrement: item.quantity }
+                    }
+                  });
+                  
+                  console.log('[Order Debug] Updated store quantity:', {
+                    storeId: item.storeId,
+                    productId: item.productId,
+                    decremented: item.quantity
+                  });
+                }
               }
-            }
-            
-            // Create order item
-            const orderItemData = {
-              quantity: item.quantity,
-              orderId: newOrder.id,
-              productId: item.productId
-            };
-            
-            // Only include priceOptionId if it exists
-            if (item.priceOptionId) {
-              orderItemData.priceOptionId = item.priceOptionId;
-            }
-            
-            await tx.orderItem.create({
-              data: orderItemData
-            });
-          }
-        },
-        {
-          timeout: 10000 // Increase timeout to 10 seconds
-        }
-      );
-      
-      // Get the complete order with all relationships after transaction
-      const result = await prisma.myOrder.findUnique({
-        where: { id: newOrder.id },
-        include: {
-          orderItems: {
-            include: {
-              product: true,
-              priceOption: true
+              
+              // Create order item
+              const orderItemData = {
+                quantity: item.quantity,
+                orderId: newOrder.id,
+                productId: item.productId
+              };
+              
+              // Only include priceOptionId if it exists
+              if (item.priceOptionId) {
+                orderItemData.priceOptionId = item.priceOptionId;
+              }
+              
+              await tx.orderItem.create({
+                data: orderItemData
+              });
             }
           },
-          client: true,
-          user: {
-            select: {
-              id: true,
-              name: true,
-              phoneNumber: true
+          {
+            timeout: 10000 // Increase timeout to 10 seconds
+          }
+        );
+        
+        // Get the complete order with all relationships after transaction
+        const result = await prisma.myOrder.findUnique({
+          where: { id: newOrder.id },
+          include: {
+            orderItems: {
+              include: {
+                product: true,
+                priceOption: true
+              }
+            },
+            client: true,
+            user: {
+              select: {
+                id: true,
+                name: true,
+                phoneNumber: true
+              }
             }
           }
-        }
-      });
+        });
 
-      console.log('[Order Debug] Transaction completed successfully');
-      
-      res.status(201).json({
-        success: true,
-        data: result
-      });
+        console.log('[Order Debug] Transaction completed successfully');
+        
+        res.status(201).json({
+          success: true,
+          data: result
+        });
+      } catch (error) {
+        console.error('[Order Debug] Error creating order:', error);
+        res.status(500).json({
+          success: false,
+          error: 'Failed to create order',
+          details: error.message
+        });
+      }
     } catch (error) {
-      console.error('[Order Debug] Error creating order:', error);
+      console.error('[Order Debug] Error processing order:', error);
       res.status(500).json({
         success: false,
-        error: 'Failed to create order',
+        error: 'Failed to process order',
         details: error.message
       });
     }
