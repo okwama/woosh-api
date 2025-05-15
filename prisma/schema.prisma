@@ -270,7 +270,7 @@ model Clients {
   address            String?
   latitude           Float?
   longitude          Float?
-  balance            String?
+  balance            Decimal?             @db.Decimal(11, 2)
   email              String?
   region_id          Int
   region             String
@@ -721,6 +721,52 @@ model routes {
 model departments {
   id   Int    @id @default(autoincrement())
   name String @db.VarChar(50)
+}
+
+model clientHistory {
+  id         Int     @id @default(autoincrement())
+  client_id  Int
+  order_id   Int
+  reference  String  @db.VarChar(200)
+  amount_in  Decimal @db.Decimal(10, 2)
+  amount_out Decimal @db.Decimal(10, 2)
+  balance    Decimal @db.Decimal(10, 2)
+  my_date    String  @db.VarChar(50)
+  createdAt  String  @db.VarChar(50)
+  staff      Int
+}
+
+model purchase_items {
+  id           Int     @id @default(autoincrement())
+  tb1_id       Int
+  piece_id     String  @db.VarChar(200)
+  product_name String  @db.VarChar(200)
+  quantity     String  @db.VarChar(200)
+  rate         Decimal @db.Decimal(11, 2)
+  total        Decimal @db.Decimal(11, 2)
+  month        String  @db.VarChar(100)
+  year         String  @db.VarChar(100)
+  created_date String  @db.VarChar(100)
+  my_date      String  @db.VarChar(100)
+  status       Int
+  staff_id     Int
+  staff        String  @db.VarChar(100)
+}
+
+model purchases {
+  id            Int     @id @default(autoincrement())
+  supplier      Int
+  comment       String  @db.VarChar(250)
+  store         String  @db.VarChar(11)
+  amount        Decimal @db.Decimal(11, 2)
+  paid          Decimal @db.Decimal(11, 2)
+  remain        Decimal @db.Decimal(11, 2)
+  status        Int     @default(0)
+  month         String  @db.VarChar(200)
+  year          String  @db.VarChar(200)
+  purchase_date String  @db.VarChar(100)
+  my_date       String  @db.VarChar(20)
+  staff         String  @db.VarChar(200)
 }
 
 enum ReportType {

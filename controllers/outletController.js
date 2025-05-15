@@ -79,7 +79,7 @@ const getOutlets = async (req, res) => {
     // Add default value for balance if it's null/undefined
     const outletsWithDefaultBalance = outlets.map(outlet => ({
       ...outlet,
-      balance: outlet.balance ?? 0
+      balance: String(outlet.balance ?? "0"), // Convert balance to a string
     }));
 
     res.json({
