@@ -811,6 +811,11 @@ const getOrders = async (req, res) => {
       },
     });
 
+
+    const formattedOrders = orders.map(order => ({
+      ...order,
+      balance: String(order.balance ?? '0'),  // Ensure balance is always a string
+    }));
     const totalPages = Math.ceil(total / limit);
 
     res.json({
