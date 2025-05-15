@@ -49,7 +49,7 @@ model SalesRep {
   leaves              Leave[]
   Manager             Manager?
   Task                Task[]
-
+  targets             Target[] 
   @@index([countryId], map: "SalesRep_countryId_fkey")
 }
 
@@ -71,7 +71,17 @@ model LoginHistory {
   @@index([loginAt])
   @@index([logoutAt])
 }
-
+model Target {
+  id            Int      @id @default(autoincrement())
+  salesRepId    Int
+  salesRep      SalesRep @relation(fields: [salesRepId], references: [id])
+  isCurrent     Boolean  @default(false) // true if this is the current target for the rep
+  targetValue   Int
+  achievedValue Int      @default(0)
+  achieved      Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
 model Manager {
   id         Int              @id @default(autoincrement())
   userId     Int              @unique
@@ -767,6 +777,16 @@ model purchases {
   purchase_date String  @db.VarChar(100)
   my_date       String  @db.VarChar(20)
   staff         String  @db.VarChar(200)
+}
+
+model stock_take {
+  id                Int    @id @default(autoincrement())
+  store_id          Int
+  product_id        Int
+  expected_quantity Int
+  counted_quantity  Int
+  difference        Int
+  stock_take_date   String @db.VarChar(50)
 }
 
 enum ReportType {
