@@ -111,7 +111,7 @@ const createReport = async (req, res) => {
                             comment: details.comment || '',
                             user: { connect: { id: userId } },
                             client: { connect: { id: clientId } },
-                            Report: { connect: { id: report.id } }
+                            report: { connect: { id: report.id } }
                         }
                     });
                 } else {
@@ -133,6 +133,7 @@ const createReport = async (req, res) => {
             case 'VISIBILITY_ACTIVITY':
                 specificReport = await prisma.visibilityReport.create({
                     data: {
+
                         comment: details.comment || '',
                         imageUrl: details.imageUrl || '',
                         user: { connect: { id: userId } },
@@ -146,7 +147,7 @@ const createReport = async (req, res) => {
                     data: {
                         user: { connect: { id: userId } },
                         client: { connect: { id: clientId } },
-                        Report: { connect: { id: report.id } }
+                        report: { connect: { id: report.id } }
                     },
                 });
 
@@ -154,13 +155,14 @@ const createReport = async (req, res) => {
                     items = await Promise.all(details.items.map(item =>
                         prisma.productReturnItem.create({
                             data: {
-                                productReturnId: specificReport.id,
+                                productReturn: specificReport.id,
                                 productName: item.productName || 'Unknown',
                                 quantity: item.quantity || 0,
                                 reason: item.reason || '',
                                 imageUrl: item.imageUrl || '',
                                 user: { connect: { id: userId } },
-                                client: { connect: { id: clientId } }
+                                client: { connect: { id: clientId } },
+                                productReturn: { connect: { id: specificReport.id } }  // ✅ Added field
                             },
                         })
                     ));
@@ -172,7 +174,7 @@ const createReport = async (req, res) => {
                     data: {
                         user: { connect: { id: userId } },
                         client: { connect: { id: clientId } },
-                        Report: { connect: { id: report.id } }
+                        report: { connect: { id: report.id } }
                     },
                 });
 
@@ -180,12 +182,13 @@ const createReport = async (req, res) => {
                     items = await Promise.all(details.items.map(item =>
                         prisma.productsSampleItem.create({
                             data: {
-                                productsSampleId: specificReport.id,
+                                productsSample: specificReport.id,
                                 productName: item.productName || 'Unknown',
                                 quantity: item.quantity || 0,
                                 reason: item.reason || '',
                                 user: { connect: { id: userId } },
-                                client: { connect: { id: clientId } }
+                                client: { connect: { id: clientId } },
+                                productsSample: { connect: { id: specificReport.id } }
                             },
                         })
                     ));
