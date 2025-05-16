@@ -215,23 +215,34 @@ const createReport = async (req, res) => {
 
 // Get all reports
 const getAllReports = async (req, res) => {
-    const context = { function: 'getAllReports' };
+    const context = { function: 'getAllReports', query: req.query };
     try {
+        const { type, userId } = req.query;
+        
+        // Build where clause based on filters
+        const where = {};
+        if (type) {
+            where.type = type.toUpperCase();
+        }
+        if (userId) {
+            where.userId = Number(userId);
+        }
+
         const reports = await prisma.report.findMany({
+            where,
             include: { 
-                feedbackReport: true, 
-                productReport: true, 
-                visibilityReport: true,
-                productReturn: {
+                FeedbackReport: true, 
+                ProductReport: true, 
+                VisibilityReport: true,
+                productReturns: {
                     include: {
-                        items: true
+                        ProductReturnItem: true,
+                        user: true,
+                        client: true
                     }
                 },
-                productsSample: {
-                    include: {
-                        items: true
-                    }
-                },
+                MyOrder: true,
+                journeyPlan: true,
                 user: {
                     select: {
                         id: true,
