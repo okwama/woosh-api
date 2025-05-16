@@ -3,7 +3,7 @@ const router = express.Router();
 const multer = require('multer');
 const path = require('path');
 const { auth } = require('../middleware/authMiddleware');
-const { updateProfilePhoto, getProfile, updatePassword } = require('../controllers/profileController');
+const { updateProfilePhoto, getProfile, updatePassword, getSalesReps } = require('../controllers/profileController');
 const { anyUser } = require('../middleware/roleAuth');
 // Configure multer for memory storage
 const upload = multer({
@@ -24,8 +24,9 @@ const upload = multer({
 });
 
 // Routes
-router.get('/profile', auth,anyUser, getProfile);
-router.post('/profile/photo', auth,anyUser, upload.single('photo'), updateProfilePhoto);
-router.post('/profile/password', auth,anyUser, updatePassword);
+router.get('/profile', auth, anyUser, getProfile);
+router.get('/profile/users', auth, anyUser, getSalesReps);
+router.post('/profile/photo', auth, anyUser, upload.single('photo'), updateProfilePhoto);
+router.post('/profile/password', auth, anyUser, updatePassword);
 
 module.exports = router;

@@ -126,8 +126,24 @@ const login = async (req, res) => {
     // Check if user exists
     const salesRep = await prisma.salesRep.findFirst({
       where: { phoneNumber },
-      include: {
-        Manager: true,
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        phoneNumber: true,
+        password: true,
+        photoUrl: true,
+        role: true,
+        region: true,
+        region_id: true,
+        route_id: true,
+        route: true,
+        countryId: true,
+        Manager: {
+          select: {
+            department: true
+          }
+        },
         countryRelation: true
       }
     });
@@ -187,6 +203,7 @@ const login = async (req, res) => {
         region: salesRep.region,
         region_id: salesRep.region_id,
         route_id: salesRep.route_id,
+        route: salesRep.route,
         countryId: salesRep.countryId,
         country: salesRep.countryRelation
       },

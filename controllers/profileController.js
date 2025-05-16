@@ -64,6 +64,8 @@ const getProfile = async (req, res) => {
         role: true,
         region: true,
         region_id: true,
+        route_id: true,
+        route: true,
         country: true,
         countryId: true
       },
@@ -135,8 +137,43 @@ const updatePassword = async (req, res) => {
   }
 };
 
+const getSalesReps = async (req, res) => {
+  try {
+    const { route_id } = req.query;
+    
+    const where = {};
+    if (route_id) {
+      where.route_id = parseInt(route_id);
+    }
+
+    const salesReps = await prisma.salesRep.findMany({
+      where,
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        phoneNumber: true,
+        photoUrl: true,
+        role: true,
+        region: true,
+        region_id: true,
+        route_id: true,
+        route: true,
+        country: true,
+        countryId: true
+      },
+    });
+
+    res.json(salesReps);
+  } catch (error) {
+    console.error('Get sales reps error:', error);
+    res.status(500).json({ message: 'Failed to fetch sales reps' });
+  }
+};
+
 module.exports = {
   updateProfilePhoto,
   getProfile,
   updatePassword,
+  getSalesReps,
 };
