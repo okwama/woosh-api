@@ -9,6 +9,9 @@ const register = async (req, res) => {
       email, 
       phoneNumber, 
       password, 
+      country,
+      route,
+      route_id,
       countryId, 
       region_id, 
       region,
@@ -56,15 +59,19 @@ const register = async (req, res) => {
           email,
           phoneNumber,
           password: hashedPassword,
+          country,
           countryId,
           region_id,
           region,
+          
           role, // Use the role from request
           createdAt: new Date(),  // Explicitly set
           updatedAt: new Date(),   // Explicitly set
+          route_id: route_id || 1,   // Default to 1 if not provided
+          route: route || "Kilimani", // You can change "Default" to any suitable string
         },
         include: {
-          country: true
+          countryRelation: true
         }
       });
 
