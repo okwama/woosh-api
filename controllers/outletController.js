@@ -291,30 +291,35 @@ const addClientPayment = async (req, res) => {
     }
 
     const clientId = parseInt(req.params.id);
-    const { amount, method } = req.body;
+    const { amount, method, userId } = req.body;
 
-    if (!clientId || !amount || !req.file) {
-      return res.status(400).json({ error: 'Missing required fields' });
+    if (!clientId || !amount || !userId) {
+      return res.status(400).json({ error: 'Client ID, amount and userId are required' });
     }
 
     try {
-      // Upload file to ImageKit
-      const uniqueFilename = `${Date.now()}-${Math.round(Math.random() * 1E9)}${path.extname(req.file.originalname)}`;
-      const result = await imagekit.upload({
-        file: req.file.buffer,
-        fileName: uniqueFilename,
-        folder: 'whoosh/payments'
-      });
+      let imageUrl = null;
+      if (req.file) {
+        // Upload file to ImageKit
+        const uniqueFilename = `${Date.now()}-${Math.round(Math.random() * 1E9)}${path.extname(req.file.originalname)}`;
+        const result = await imagekit.upload({
+          file: req.file.buffer,
+          fileName: uniqueFilename,
+          folder: 'whoosh/payments'
+        });
+        imageUrl = result.url;
+      }
 
       // Create payment record for reference only
       const payment = await prisma.clientPayment.create({
         data: {
           clientId,
           amount: parseFloat(amount),
-          imageUrl: result.url,
+          imageUrl,
           method: method || '',
           status: 'PENDING',
-          date: new Date()
+          date: new Date(),
+          userId: parseInt(userId)
         }
       });
 

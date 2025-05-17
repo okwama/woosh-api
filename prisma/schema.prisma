@@ -43,13 +43,15 @@ model SalesRep {
   productsSampleItems ProductsSampleItem[]
   reports             Report[]
   countryRelation     Country              @relation(fields: [countryId], references: [id])
+  targets             Target[]
   tokens              Token[]
   UpliftSale          UpliftSale[]
   visibilityReports   VisibilityReport[]
   leaves              Leave[]
   Manager             Manager?
   Task                Task[]
-  targets             Target[] 
+  ClientPayment       ClientPayment[]
+
   @@index([countryId], map: "SalesRep_countryId_fkey")
 }
 
@@ -71,17 +73,21 @@ model LoginHistory {
   @@index([loginAt])
   @@index([logoutAt])
 }
+
 model Target {
   id            Int      @id @default(autoincrement())
   salesRepId    Int
-  salesRep      SalesRep @relation(fields: [salesRepId], references: [id])
-  isCurrent     Boolean  @default(false) // true if this is the current target for the rep
+  isCurrent     Boolean  @default(false)
   targetValue   Int
   achievedValue Int      @default(0)
   achieved      Boolean  @default(false)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
+  salesRep      SalesRep @relation(fields: [salesRepId], references: [id])
+
+  @@index([salesRepId], map: "Target_salesRepId_fkey")
 }
+
 model Manager {
   id         Int              @id @default(autoincrement())
   userId     Int              @unique
@@ -216,31 +222,33 @@ model TransferHistory {
 }
 
 model ProductDetails {
-  id          Int      @id @default(autoincrement())
+  id          Int     @id @default(autoincrement())
   productId   Int
-  date        DateTime @default(now())
+  date        String  @default("current_timestamp(3)") @db.VarChar(100)
   reference   String
   quantityIn  Int
   quantityOut Int
   newBalance  Int
   storeId     Int
-  product     Product  @relation(fields: [productId], references: [id])
-  store       Stores   @relation(fields: [storeId], references: [id])
+  staff       Int
+  staff_name  String  @db.VarChar(100)
+  update_date String  @db.VarChar(50)
+  product     Product @relation(fields: [productId], references: [id])
+  store       Stores  @relation(fields: [storeId], references: [id])
 
   @@index([productId], map: "ProductDetails_productId_fkey")
   @@index([storeId], map: "ProductDetails_storeId_fkey")
 }
 
 model Purchase {
-  id              Int               @id @default(autoincrement())
-  storeId         Int
-  date            DateTime          @default(now())
-  supplierId      Int
-  totalAmount     Int
-  store           Stores            @relation(fields: [storeId], references: [id])
-  supplier        Suppliers         @relation(fields: [supplierId], references: [id])
-  items           PurchaseItem[]
-  SupplierHistory SupplierHistory[]
+  id          Int            @id @default(autoincrement())
+  storeId     Int
+  date        DateTime       @default(now())
+  supplierId  Int
+  totalAmount Int
+  store       Stores         @relation(fields: [storeId], references: [id])
+  supplier    Suppliers      @relation(fields: [supplierId], references: [id])
+  items       PurchaseItem[]
 
   @@index([storeId], map: "Purchase_storeId_fkey")
   @@index([supplierId], map: "Purchase_supplierId_fkey")
@@ -314,13 +322,16 @@ model Clients {
 model ClientPayment {
   id       Int      @id @default(autoincrement())
   clientId Int
+  userId   Int
   amount   Float
   imageUrl String?
-  method   String?
   date     DateTime @default(now())
   status   String?
-  client   Clients  @relation(fields: [clientId], references: [id])
+  method   String?
 
+
+  client   Clients  @relation(fields: [clientId], references: [id])
+  user               SalesRep    @relation(fields: [userId], references: [id])
   @@index([clientId], map: "ClientPayment_clientId_fkey")
 }
 
@@ -410,6 +421,8 @@ model MyOrder {
   recepient          String?
   userId             Int
   clientId           Int
+  countryId          Int
+  regionId           Int
   createdAt          DateTime    @default(now())
   updatedAt          DateTime    @updatedAt
   approved_by        String      @db.VarChar(200)
@@ -663,18 +676,20 @@ model Suppliers {
 }
 
 model SupplierHistory {
-  id              Int       @id @default(autoincrement())
-  supplierId      Int
-  date            DateTime  @default(now())
-  amountIn        Float
-  previousBalance Float
-  newBalance      Float
-  purchaseId      Int
-  Purchase        Purchase  @relation(fields: [purchaseId], references: [id])
-  Suppliers       Suppliers @relation(fields: [supplierId], references: [id])
+  id           Int       @id @default(autoincrement())
+  supplier_id  Int
+  ref_id       Int
+  reference    String    @db.VarChar(100)
+  date         String    @db.VarChar(50)
+  amount_in    Decimal   @db.Decimal(11, 2)
+  amount_out   Decimal   @db.Decimal(11, 2)
+  balance      Decimal   @db.Decimal(11, 2)
+  staff        Int
+  staff_name   String    @db.VarChar(100)
+  updated_date String    @db.VarChar(100)
+  Suppliers    Suppliers @relation(fields: [supplier_id], references: [id], map: "SupplierHistory_supplierId_fkey")
 
-  @@index([purchaseId], map: "SupplierHistory_purchaseId_fkey")
-  @@index([supplierId], map: "SupplierHistory_supplierId_fkey")
+  @@index([supplier_id], map: "SupplierHistory_supplierId_fkey")
 }
 
 model users {
@@ -788,6 +803,17 @@ model stock_take {
   counted_quantity  Int
   difference        Int
   stock_take_date   String @db.VarChar(50)
+}
+
+model stock_transfer {
+  id            Int    @id @default(autoincrement())
+  product_id    Int
+  quantity      Int
+  from_store    Int
+  to_store      Int
+  staff         Int
+  staff_name    String @db.VarChar(100)
+  transfer_date String @db.VarChar(50)
 }
 
 enum ReportType {
