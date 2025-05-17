@@ -316,6 +316,7 @@ model ClientPayment {
   clientId Int
   amount   Float
   imageUrl String?
+  method   String?
   date     DateTime @default(now())
   status   String?
   client   Clients  @relation(fields: [clientId], references: [id])
