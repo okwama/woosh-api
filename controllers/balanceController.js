@@ -2,7 +2,7 @@ const prisma = require('../lib/prisma');
 const asyncHandler = require('express-async-handler');
 
 // Threshold for considering a balance as old (in days)
-const OLD_BALANCE_THRESHOLD = 1;
+const OLD_BALANCE_THRESHOLD = 30;
 
 // Get client's balance age and details
 const getClientBalanceAge = asyncHandler(async (req, res) => {
