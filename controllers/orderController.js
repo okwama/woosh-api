@@ -92,12 +92,18 @@ const createOrder = asyncHandler(async (req, res) => {
       if (balanceCheck.hasOldBalance) {
         return res.status(400).json({
           success: false,
-          error: `Cannot create order. Client has outstanding balance from ${balanceCheck.balanceAge} days ago.`,
+          error: 'Outstanding Balance',
+          message: `This client has an outstanding balance of ${balanceCheck.balance} from ${balanceCheck.balanceAge} days ago. Please ensure the previous balance is settled before creating a new order.`,
           balanceDetails: {
             age: balanceCheck.balanceAge,
             lastUpdated: balanceCheck.lastUpdated,
             balance: balanceCheck.balance,
             oldestOrder: balanceCheck.oldestOrder
+          },
+          dialog: {
+            title: 'Outstanding Balance',
+            message: `This client has an outstanding balance of ${balanceCheck.balance} from ${balanceCheck.balanceAge} days ago. Please ensure the previous balance is settled before creating a new order.`,
+            type: 'warning'
           }
         });
       }
