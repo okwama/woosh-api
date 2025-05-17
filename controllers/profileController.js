@@ -64,8 +64,6 @@ const getProfile = async (req, res) => {
         role: true,
         region: true,
         region_id: true,
-        route_id: true,
-        route: true,
         country: true,
         countryId: true
       },

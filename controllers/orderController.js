@@ -4,6 +4,7 @@ const multer = require('multer');
 const path = require('path');
 const ImageKit = require('imagekit');
 const { Prisma } = require('@prisma/client');
+const { hasOldBalance } = require('./balanceController');
 
 // Configure ImageKit
 const imagekit = new ImageKit({
@@ -47,8 +48,33 @@ const uploadToImageKit = async (fileBuffer, fileName, folder) => {
   }
 };
 
+// Add the balance check function
+const checkClientBalance = async (clientId) => {
+  try {
+    const latestBalance = await prisma.clientHistory.findFirst({
+      where: { client_id: parseInt(clientId) },
+      orderBy: { createdAt: 'desc' }
+    });
+
+    if (!latestBalance) return { hasOldBalance: false };
+
+    const balanceDate = new Date(latestBalance.createdAt);
+    const today = new Date();
+    const balanceAge = Math.floor((today - balanceDate) / (1000 * 60 * 60 * 24));
+
+    const OLD_BALANCE_THRESHOLD = 30;
+    return {
+      hasOldBalance: balanceAge > OLD_BALANCE_THRESHOLD,
+      balanceAge,
+      lastUpdated: latestBalance.createdAt
+    };
+  } catch (error) {
+    console.error('[Balance Check] Error:', error);
+    return { hasOldBalance: false };
+  }
+};
+
 const createOrder = asyncHandler(async (req, res) => {
-  // Handle image upload first
   upload(req, res, async function(err) {
     if (err) {
       console.error('[Order Debug] Multer error:', err);
@@ -58,19 +84,37 @@ const createOrder = asyncHandler(async (req, res) => {
       });
     }
 
-    console.log('[Order Debug] Request body:', {
-      hasFile: !!req.file,
-      fileDetails: req.file ? {
-        originalname: req.file.originalname,
-        mimetype: req.file.mimetype,
-        size: req.file.size
-      } : null,
-      bodyImageUrl: req.body.imageUrl,
-      body: req.body
-    });
-
     try {
-      // Handle image upload first, before any other processing
+      const clientId = req.body.clientId || 1;
+
+      // Check for old balances using MyOrder
+      const balanceCheck = await hasOldBalance(clientId);
+      if (balanceCheck.hasOldBalance) {
+        return res.status(400).json({
+          success: false,
+          error: `Cannot create order. Client has outstanding balance from ${balanceCheck.balanceAge} days ago.`,
+          balanceDetails: {
+            age: balanceCheck.balanceAge,
+            lastUpdated: balanceCheck.lastUpdated,
+            balance: balanceCheck.balance,
+            oldestOrder: balanceCheck.oldestOrder
+          }
+        });
+      }
+
+      // Continue with existing order creation process
+      console.log('[Order Debug] Request body:', {
+        hasFile: !!req.file,
+        fileDetails: req.file ? {
+          originalname: req.file.originalname,
+          mimetype: req.file.mimetype,
+          size: req.file.size
+        } : null,
+        bodyImageUrl: req.body.imageUrl,
+        body: req.body
+      });
+
+      // Handle image upload first
       let imageUrl = null;
       if (req.file) {
         try {
@@ -95,7 +139,6 @@ const createOrder = asyncHandler(async (req, res) => {
       // Get the region and country from the request
       const { items = [], orderItems = [], regionId, countryId } = req.body;
       // Extract clientId from request body or default to 1
-      const clientId = req.body.clientId || 1;
       const orderItemsToUse = items.length > 0 ? items : orderItems;
       
       // Ensure we have a valid user ID from the authenticated user
@@ -770,9 +813,6 @@ const createOrder = asyncHandler(async (req, res) => {
   });
 });
 
-
-
-
 // Get orders with pagination
 const getOrders = async (req, res) => {
   const salesRepId = req.user.id;
@@ -834,7 +874,6 @@ const getOrders = async (req, res) => {
     });
   }
 };
-
 
 // Update order (updating order items)
 const updateOrder = async (req, res) => {
