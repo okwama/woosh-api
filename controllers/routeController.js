@@ -8,15 +8,12 @@ const getRoutes = async (req, res) => {
         id: true,
         name: true,
         region: true,
+        region_name: true,
         country_id: true,
+        country_name: true,
         leader_id: true,
-        leader: {
-          select: {
-            id: true,
-            name: true,
-            phone_number: true,
-          },
-        },
+        leader_name: true,
+        status: true,
       },
       orderBy: {
         name: 'asc',
@@ -43,21 +40,26 @@ const getRouteById = async (req, res) => {
         id: true,
         name: true,
         region: true,
+        region_name: true,
         country_id: true,
+        country_name: true,
         leader_id: true,
-        leader: {
+        leader_name: true,
+        status: true,
+        JourneyPlan: {
           select: {
             id: true,
-            name: true,
-            phone_number: true,
-          },
-        },
-        clients: {
-          select: {
-            id: true,
-            name: true,
-            address: true,
-            contact: true,
+            date: true,
+            time: true,
+            status: true,
+            client: {
+              select: {
+                id: true,
+                name: true,
+                address: true,
+                contact: true,
+              },
+            },
           },
         },
       },
