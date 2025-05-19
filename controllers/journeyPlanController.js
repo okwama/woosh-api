@@ -11,10 +11,10 @@ const getSalesRepId = (req) => {
 // Create a new journey plan
 const createJourneyPlan = async (req, res) => {
   try {
-    const { clientId, date, notes, showUpdateLocation } = req.body;
+    const { clientId, date, notes, showUpdateLocation, routeId } = req.body;
     const salesRepId = req.user.id;
 
-    console.log('Creating journey plan with:', { clientId, date, salesRepId, notes, showUpdateLocation });
+    console.log('Creating journey plan with:', { clientId, date, salesRepId, notes, showUpdateLocation, routeId });
 
     // Input validation
     if (!clientId) {
@@ -34,6 +34,26 @@ const createJourneyPlan = async (req, res) => {
       return res.status(404).json({ error: 'Client not found' });
     }
 
+    // If routeId is provided, validate and update client's route
+    if (routeId) {
+      const route = await prisma.routes.findUnique({
+        where: { id: parseInt(routeId) },
+      });
+
+      if (!route) {
+        return res.status(404).json({ error: 'Route not found' });
+      }
+
+      // Update client's route
+      await prisma.clients.update({
+        where: { id: parseInt(clientId) },
+        data: {
+          route_id: parseInt(routeId),
+          route_name: route.name,
+        },
+      });
+    }
+
     // Parse the date from ISO string
     let journeyDate;
     try {
@@ -48,7 +68,7 @@ const createJourneyPlan = async (req, res) => {
 
     // Validate that the date is not in the past
     const now = new Date();
-    now.setHours(0, 0, 0, 0); // Set to start of day for comparison
+    now.setHours(0, 0, 0, 0);
     if (journeyDate < now) {
       return res.status(400).json({ error: 'Journey date cannot be in the past' });
     }
@@ -67,12 +87,17 @@ const createJourneyPlan = async (req, res) => {
         time: time,
         userId: salesRepId,
         clientId: parseInt(clientId),
-        status: 0, // 0 for pending
+        status: 0,
         notes: notes,
-        showUpdateLocation: showUpdateLocation ?? true, // Use provided value or default to true
+        showUpdateLocation: showUpdateLocation ?? true,
+        routeId: routeId ? parseInt(routeId) : null,
+        route: routeId ? {
+          connect: { id: parseInt(routeId) }
+        } : undefined,
       },
       include: {
         client: true,
+        route: true,
       },
     });
 

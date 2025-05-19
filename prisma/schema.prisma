@@ -443,6 +443,7 @@ model JourneyPlan {
   date               DateTime
   time               String
   userId             Int?
+  routeId            Int?
   clientId           Int
   status             Int       @default(0)
   checkInTime        DateTime?
@@ -457,7 +458,7 @@ model JourneyPlan {
   client             Clients   @relation(fields: [clientId], references: [id])
   user               SalesRep? @relation(fields: [userId], references: [id])
   reports            Report[]
-
+  route              routes?   @relation(fields: [routeId], references: [id])
   @@index([clientId])
   @@index([userId])
 }
@@ -744,6 +745,8 @@ model routes {
   leader_id    Int
   leader_name  String @db.VarChar(100)
   status       Int
+
+  JourneyPlan JourneyPlan[]
 }
 
 model departments {
