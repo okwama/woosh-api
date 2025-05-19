@@ -77,7 +77,7 @@ const register = async (req, res) => {
 
       // If role is MANAGER, create manager record
       if (role === 'MANAGER') {
-        await prisma.manager.create({
+        await prisma.managers.create({
           data: {
             userId: salesRep.id,
             department
