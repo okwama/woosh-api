@@ -113,9 +113,9 @@ const createReport = async (req, res) => {
                                 productId: product.id,
                                 quantity: productDetail.quantity || 0,
                                 comment: productDetail.comment || '',
-                                user: { connect: { id: userId } },
-                                client: { connect: { id: clientId } },
-                                report: { connect: { id: report.id } }
+                                userId: userId,
+                                clientId: clientId,
+                                reportId: report.id
                             }
                         });
                     } else {
@@ -126,9 +126,9 @@ const createReport = async (req, res) => {
                                 productId: product.id,
                                 quantity: productDetail.quantity || 0,
                                 comment: productDetail.comment || '',
-                                user: { connect: { id: userId } },
-                                client: { connect: { id: clientId } },
-                                report: { connect: { id: report.id } }
+                                userId: userId,
+                                clientId: clientId,
+                                reportId: report.id
                             }
                         });
                     }
