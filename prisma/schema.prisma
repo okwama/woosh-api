@@ -479,7 +479,7 @@ model Report {
   journeyPlanId    Int?
   type             ReportType
   FeedbackReport   FeedbackReport?
-  ProductReport    ProductReport?
+  ProductReport    ProductReport[]
   productReturns   ProductReturn?
   productsSample   ProductsSample?
   client           Clients           @relation(fields: [clientId], references: [id])
@@ -511,7 +511,7 @@ model FeedbackReport {
 }
 
 model ProductReport {
-  reportId    Int      @unique
+  reportId    Int
   productName String?
   quantity    Int?
   comment     String?
