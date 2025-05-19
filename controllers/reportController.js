@@ -71,83 +71,33 @@ const createReport = async (req, res) => {
                 });
                 break;
             case 'PRODUCT_AVAILABILITY': {
-                // Handle both single product (legacy) and multiple products
-                const productDetails = Array.isArray(details) ? details : [details];
-                
-                // Create all product reports in a single transaction
-                specificReport = await prisma.$transaction(async (tx) => {
-                    const reports = [];
-                    
-                    for (const productDetail of productDetails) {
-                        // Find the product by ID or name
-                        const product = await tx.product.findFirst({
-                            where: {
-                                OR: [
-                                    { id: productDetail.productId || undefined },
-                                    { name: { contains: productDetail.productName || '' } }
-                                ].filter(Boolean)
-                            },
-                            select: {
-                                id: true,
-                                name: true
-                            }
-                        });
+                const productReports = [];
+                for (const detail of details) {
+                    const product = await prisma.product.findUnique({
+                        where: { id: detail.productId },
+                    });
 
-                        if (!product) {
-                            console.warn(`Product not found: ${productDetail.productName || productDetail.productId}`);
-                            continue;
-                        }
-
-                        // Check for existing report for this product
-                        const existingReport = await tx.productReport.findFirst({
-                            where: {
+                    if (product) {
+                        const productReport = await prisma.productReport.create({
+                            data: {
+                                userId: userId,
+                                clientId: clientId,
                                 reportId: report.id,
                                 productId: product.id,
-                                clientId: clientId
-                            }
+                                productName: product.name,
+                                quantity: detail.quantity,
+                                comment: detail.comment,
+                            },
                         });
-
-                        if (existingReport) {
-                            // Update existing report
-                            const updatedReport = await tx.productReport.update({
-                                where: { id: existingReport.id },
-                                data: {
-                                    productName: product.name || 'Unknown',
-                                    productId: product.id,
-                                    quantity: productDetail.quantity || 0,
-                                    comment: productDetail.comment || '',
-                                    userId: userId,
-                                    clientId: clientId,
-                                    reportId: report.id
-                                }
-                            });
-                            reports.push(updatedReport);
-                        } else {
-                            // Create new report
-                            const newReport = await tx.productReport.create({
-                                data: {
-                                    productName: product.name || 'Unknown',
-                                    productId: product.id,
-                                    quantity: productDetail.quantity || 0,
-                                    comment: productDetail.comment || '',
-                                    userId: userId,
-                                    clientId: clientId,
-                                    reportId: report.id
-                                }
-                            });
-                            reports.push(newReport);
-                        }
+                        productReports.push(productReport);
                     }
-                    
-                    return reports;
-                });
-                
+                }
+                specificReport = productReports;
                 break;
             }
             case 'VISIBILITY_ACTIVITY':
                 specificReport = await prisma.visibilityReport.create({
                     data: {
-
                         comment: details.comment || '',
                         imageUrl: details.imageUrl || '',
                         user: { connect: { id: userId } },

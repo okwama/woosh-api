@@ -32,6 +32,7 @@ model SalesRep {
   createdAt           DateTime             @default(now())
   updatedAt           DateTime             @updatedAt
   photoUrl            String?              @default("")
+  ClientPayment       ClientPayment[]
   feedbackReports     FeedbackReport[]
   journeyPlans        JourneyPlan[]
   LoginHistory        LoginHistory[]
@@ -50,7 +51,6 @@ model SalesRep {
   leaves              Leave[]
   Manager             Manager?
   Task                Task[]
-  ClientPayment       ClientPayment[]
 
   @@index([countryId], map: "SalesRep_countryId_fkey")
 }
@@ -322,17 +322,17 @@ model Clients {
 model ClientPayment {
   id       Int      @id @default(autoincrement())
   clientId Int
-  userId   Int
   amount   Float
   imageUrl String?
   date     DateTime @default(now())
   status   String?
   method   String?
-
-
+  userId   Int
   client   Clients  @relation(fields: [clientId], references: [id])
-  user               SalesRep    @relation(fields: [userId], references: [id])
+  user     SalesRep @relation(fields: [userId], references: [id])
+
   @@index([clientId], map: "ClientPayment_clientId_fkey")
+  @@index([userId], map: "ClientPayment_userId_fkey")
 }
 
 model Riders {
@@ -556,6 +556,8 @@ model ProductReturn {
   status            Int                 @default(0)
   clientId          Int
   userId            Int
+  staff_id          Int
+  staff_name        String              @db.VarChar(100)
   client            Clients             @relation(fields: [clientId], references: [id])
   report            Report              @relation(fields: [reportId], references: [id])
   user              SalesRep            @relation(fields: [userId], references: [id])
@@ -814,6 +816,28 @@ model stock_transfer {
   staff         Int
   staff_name    String @db.VarChar(100)
   transfer_date String @db.VarChar(50)
+}
+
+model account_update {
+  id               Int     @id @default(autoincrement())
+  account_id       Int
+  reference        String  @db.VarChar(250)
+  amount           Decimal @db.Decimal(11, 2)
+  amount_in        Decimal @db.Decimal(11, 2)
+  amount_out       Decimal @db.Decimal(11, 2)
+  balance          Decimal @db.Decimal(11, 2)
+  transaction_date String  @db.VarChar(100)
+  update_date      String  @db.VarChar(100)
+  staff_id         Int
+  staff_name       String  @db.VarChar(100)
+}
+
+model accounts {
+  id          Int     @id @default(autoincrement())
+  name        String  @db.VarChar(100)
+  description String  @db.VarChar(100)
+  balance     Decimal @db.Decimal(11, 2)
+  status      Int
 }
 
 enum ReportType {
