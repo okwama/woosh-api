@@ -50,10 +50,13 @@ const register = async (req, res) => {
     // Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
 
+    // Normalize role
+    const normalizedRole = role.toUpperCase();
+
     // Create user with transaction
-    const result = await prisma.$transaction(async (prisma) => {
+    const result = await prisma.$transaction(async (tx) => {
       // Create the user
-      const salesRep = await prisma.salesRep.create({
+      const salesRep = await tx.salesRep.create({
         data: {
           name,
           email,
@@ -63,12 +66,11 @@ const register = async (req, res) => {
           countryId,
           region_id,
           region,
-          
-          role, // Use the role from request
-          createdAt: new Date(),  // Explicitly set
-          updatedAt: new Date(),   // Explicitly set
-          route_id: route_id || 1,   // Default to 1 if not provided
-          route: route || "Kilimani", // You can change "Default" to any suitable string
+          role: normalizedRole, // Use normalized role
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          route_id: route_id || 1,
+          route: route || "Kilimani",
         },
         include: {
           countryRelation: true
@@ -76,8 +78,8 @@ const register = async (req, res) => {
       });
 
       // If role is MANAGER, create manager record
-      if (role === 'MANAGER') {
-        await prisma.managers.create({
+      if (normalizedRole === 'MANAGER') {
+        await tx.Manager.create({
           data: {
             userId: salesRep.id,
             department
@@ -93,7 +95,7 @@ const register = async (req, res) => {
       );
 
       // Store token
-      await prisma.token.create({
+      await tx.token.create({
         data: {
           token,
           user: {
