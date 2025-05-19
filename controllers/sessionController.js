@@ -115,13 +115,13 @@ const recordLogin = async (req, res) => {
     const currentMinute = clientTime.getMinutes();
 
     // Check if current time is before 9 AM in client's timezone
-    if (currentHour < SHIFT_START_HOUR || (currentHour === SHIFT_START_HOUR && currentMinute < SHIFT_START_MINUTE)) {
+    /*if (currentHour < SHIFT_START_HOUR || (currentHour === SHIFT_START_HOUR && currentMinute < SHIFT_START_MINUTE)) {
       return res.status(400).json({ 
         error: 'Sessions can only be started after 9:00 AM',
         currentTime: `${currentHour}:${currentMinute.toString().padStart(2, '0')}`,
         timezone: timezone
       });
-    }
+    }*/
 
     const user = await prisma.salesRep.findUnique({
       where: { id: parseInt(userId) }
