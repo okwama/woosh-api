@@ -74,68 +74,74 @@ const createReport = async (req, res) => {
                 // Handle both single product (legacy) and multiple products
                 const productDetails = Array.isArray(details) ? details : [details];
                 
-                // Process each product in the report
-                specificReport = await Promise.all(productDetails.map(async (productDetail) => {
-                    // Find the product by ID or name
-                    const product = await prisma.product.findFirst({
-                        where: {
-                            OR: [
-                                { id: productDetail.productId || undefined },
-                                { name: { contains: productDetail.productName || '' } }
-                            ].filter(Boolean)
-                        },
-                        select: {
-                            id: true,
-                            name: true
-                        }
-                    });
-
-                    if (!product) {
-                        console.warn(`Product not found: ${productDetail.productName || productDetail.productId}`);
-                        return null;
-                    }
-
-                    // Check for existing report for this product
-                    const existingReport = await prisma.productReport.findFirst({
-                        where: {
-                            reportId: report.id,
-                            productId: product.id,
-                            clientId: clientId
-                        }
-                    });
-
-                    if (existingReport) {
-                        // Update existing report
-                        return await prisma.productReport.update({
-                            where: { id: existingReport.id },
-                            data: {
-                                productName: product.name || 'Unknown',
-                                productId: product.id,
-                                quantity: productDetail.quantity || 0,
-                                comment: productDetail.comment || '',
-                                userId: userId,
-                                clientId: clientId,
-                                reportId: report.id
+                // Create all product reports in a single transaction
+                specificReport = await prisma.$transaction(async (tx) => {
+                    const reports = [];
+                    
+                    for (const productDetail of productDetails) {
+                        // Find the product by ID or name
+                        const product = await tx.product.findFirst({
+                            where: {
+                                OR: [
+                                    { id: productDetail.productId || undefined },
+                                    { name: { contains: productDetail.productName || '' } }
+                                ].filter(Boolean)
+                            },
+                            select: {
+                                id: true,
+                                name: true
                             }
                         });
-                    } else {
-                        // Create new report
-                        return await prisma.productReport.create({
-                            data: {
-                                productName: product.name || 'Unknown',
+
+                        if (!product) {
+                            console.warn(`Product not found: ${productDetail.productName || productDetail.productId}`);
+                            continue;
+                        }
+
+                        // Check for existing report for this product
+                        const existingReport = await tx.productReport.findFirst({
+                            where: {
+                                reportId: report.id,
                                 productId: product.id,
-                                quantity: productDetail.quantity || 0,
-                                comment: productDetail.comment || '',
-                                userId: userId,
-                                clientId: clientId,
-                                reportId: report.id
+                                clientId: clientId
                             }
                         });
+
+                        if (existingReport) {
+                            // Update existing report
+                            const updatedReport = await tx.productReport.update({
+                                where: { id: existingReport.id },
+                                data: {
+                                    productName: product.name || 'Unknown',
+                                    productId: product.id,
+                                    quantity: productDetail.quantity || 0,
+                                    comment: productDetail.comment || '',
+                                    userId: userId,
+                                    clientId: clientId,
+                                    reportId: report.id
+                                }
+                            });
+                            reports.push(updatedReport);
+                        } else {
+                            // Create new report
+                            const newReport = await tx.productReport.create({
+                                data: {
+                                    productName: product.name || 'Unknown',
+                                    productId: product.id,
+                                    quantity: productDetail.quantity || 0,
+                                    comment: productDetail.comment || '',
+                                    userId: userId,
+                                    clientId: clientId,
+                                    reportId: report.id
+                                }
+                            });
+                            reports.push(newReport);
+                        }
                     }
-                }));
+                    
+                    return reports;
+                });
                 
-                // Filter out any null values from failed product lookups
-                specificReport = specificReport.filter(report => report !== null);
                 break;
             }
             case 'VISIBILITY_ACTIVITY':
