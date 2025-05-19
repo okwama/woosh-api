@@ -91,9 +91,6 @@ const createJourneyPlan = async (req, res) => {
         notes: notes,
         showUpdateLocation: showUpdateLocation ?? true,
         routeId: routeId ? parseInt(routeId) : null,
-        route: routeId ? {
-          connect: { id: parseInt(routeId) }
-        } : undefined,
       },
       include: {
         client: true,
