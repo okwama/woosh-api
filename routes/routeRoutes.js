@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { getRoutes, getRouteById } = require('../controllers/routeController');
-const { authenticateToken } = require('../middleware/auth');
+const { authenticateToken } = require('../middleware/authMiddleware');
 
 // Get all routes
 router.get('/', authenticateToken, getRoutes);
