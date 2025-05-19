@@ -71,63 +71,71 @@ const createReport = async (req, res) => {
                 });
                 break;
             case 'PRODUCT_AVAILABILITY': {
-                // First find the product by name
-                const product = await prisma.product.findFirst({
-                    where: {
-                        name: {
-                            contains: details.productName,
-                        }
-                    },
-                    select: {
-                        id: true,
-                        name: true
-                    }
-                });
-
-                if (!product) {
-                    logError(new Error('Product not found'), { ...context, productName: details.productName });
-                    return res.status(400).json({ error: 'Product not found' });
-                }
-
-                // Check for existing report for this product
-                const existingReport = await prisma.productReport.findFirst({
-                    where: {
-                        productId: product.id,
-                        clientId: clientId,
-                        createdAt: {
-                            gte: new Date(new Date().setHours(0, 0, 0, 0)) // Today's reports only
-                        }
-                    }
-                });
-
-                if (existingReport) {
-                    // Update existing report
-                    specificReport = await prisma.productReport.update({
+                // Handle both single product (legacy) and multiple products
+                const productDetails = Array.isArray(details) ? details : [details];
+                
+                // Process each product in the report
+                specificReport = await Promise.all(productDetails.map(async (productDetail) => {
+                    // Find the product by ID or name
+                    const product = await prisma.product.findFirst({
                         where: {
-                            id: existingReport.id
+                            OR: [
+                                { id: productDetail.productId || undefined },
+                                { name: { contains: productDetail.productName || '' } }
+                            ].filter(Boolean)
                         },
-                        data: {
-                            quantity: details.quantity || 0,
-                            comment: details.comment || '',
-                            user: { connect: { id: userId } },
-                            client: { connect: { id: clientId } },
-                            report: { connect: { id: report.id } }
+                        select: {
+                            id: true,
+                            name: true
                         }
                     });
-                } else {
-                    // Create new report
-                    specificReport = await prisma.productReport.create({
-                        data: {
-                            productName: product.name || 'Unknown',
+
+                    if (!product) {
+                        console.warn(`Product not found: ${productDetail.productName || productDetail.productId}`);
+                        return null;
+                    }
+
+                    // Check for existing report for this product
+                    const existingReport = await prisma.productReport.findFirst({
+                        where: {
+                            reportId: report.id,
                             productId: product.id,
-                            quantity: details.quantity || 0,
-                            comment: details.comment || '',
-                            user: { connect: { id: userId } },
-                            client: { connect: { id: clientId } },
-                            Report: { connect: { id: report.id } }
-                        },
+                            clientId: clientId
+                        }
                     });
-                }
+
+                    if (existingReport) {
+                        // Update existing report
+                        return await prisma.productReport.update({
+                            where: { id: existingReport.id },
+                            data: {
+                                productName: product.name || 'Unknown',
+                                productId: product.id,
+                                quantity: productDetail.quantity || 0,
+                                comment: productDetail.comment || '',
+                                user: { connect: { id: userId } },
+                                client: { connect: { id: clientId } },
+                                report: { connect: { id: report.id } }
+                            }
+                        });
+                    } else {
+                        // Create new report
+                        return await prisma.productReport.create({
+                            data: {
+                                productName: product.name || 'Unknown',
+                                productId: product.id,
+                                quantity: productDetail.quantity || 0,
+                                comment: productDetail.comment || '',
+                                user: { connect: { id: userId } },
+                                client: { connect: { id: clientId } },
+                                report: { connect: { id: report.id } }
+                            }
+                        });
+                    }
+                }));
+                
+                // Filter out any null values from failed product lookups
+                specificReport = specificReport.filter(report => report !== null);
                 break;
             }
             case 'VISIBILITY_ACTIVITY':
