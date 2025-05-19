@@ -71,28 +71,44 @@ const createReport = async (req, res) => {
                 });
                 break;
             case 'PRODUCT_AVAILABILITY': {
-                const productReports = [];
-                for (const detail of details) {
-                    const product = await prisma.product.findUnique({
-                        where: { id: detail.productId },
+                // Create all product reports in a single transaction
+                specificReport = await prisma.$transaction(async (tx) => {
+                    const productReports = [];
+                    
+                    // Batch fetch all products at once
+                    const productIds = details.map(detail => detail.productId).filter(Boolean);
+                    const products = await tx.product.findMany({
+                        where: { id: { in: productIds } },
+                        select: { id: true, name: true }
                     });
-
-                    if (product) {
-                        const productReport = await prisma.productReport.create({
-                            data: {
-                                userId: userId,
-                                clientId: clientId,
-                                reportId: report.id,
-                                productId: product.id,
-                                productName: product.name,
-                                quantity: detail.quantity,
-                                comment: detail.comment,
-                            },
-                        });
-                        productReports.push(productReport);
-                    }
-                }
-                specificReport = productReports;
+                    
+                    // Create a map for quick product lookup
+                    const productMap = new Map(products.map(p => [p.id, p]));
+                    
+                    // Create all product reports in parallel
+                    const reportPromises = details.map(async (detail) => {
+                        const product = productMap.get(detail.productId);
+                        if (product) {
+                            const productReport = await tx.productReport.create({
+                                data: {
+                                    userId,
+                                    clientId,
+                                    reportId: report.id,
+                                    productId: product.id,
+                                    productName: product.name,
+                                    quantity: detail.quantity,
+                                    comment: detail.comment,
+                                },
+                            });
+                            productReports.push(productReport);
+                            return productReport;
+                        }
+                        return null;
+                    });
+                    
+                    const results = await Promise.all(reportPromises);
+                    return results.filter(Boolean);
+                });
                 break;
             }
             case 'VISIBILITY_ACTIVITY':
@@ -181,7 +197,8 @@ const createReport = async (req, res) => {
 const getAllReports = async (req, res) => {
     const context = { function: 'getAllReports', query: req.query };
     try {
-        const { type, userId } = req.query;
+        const { type, userId, page = 1, limit = 20 } = req.query;
+        const skip = (Number(page) - 1) * Number(limit);
         
         // Build where clause based on filters
         const where = {};
@@ -192,21 +209,57 @@ const getAllReports = async (req, res) => {
             where.userId = Number(userId);
         }
 
+        // Get total count for pagination
+        const total = await prisma.report.count({ where });
+
+        // Get reports with pagination
         const reports = await prisma.report.findMany({
             where,
-            include: { 
-                FeedbackReport: true, 
-                ProductReport: true, 
-                VisibilityReport: true,
-                productReturns: {
-                    include: {
-                        ProductReturnItem: true,
-                        user: true,
-                        client: true
+            skip,
+            take: Number(limit),
+            orderBy: { createdAt: 'desc' },
+            select: { 
+                id: true,
+                type: true,
+                createdAt: true,
+                FeedbackReport: {
+                    select: {
+                        comment: true,
+                        createdAt: true
                     }
                 },
-                MyOrder: true,
-                journeyPlan: true,
+                ProductReport: {
+                    select: {
+                        productName: true,
+                        quantity: true,
+                        comment: true,
+                        createdAt: true
+                    }
+                },
+                VisibilityReport: {
+                    select: {
+                        comment: true,
+                        imageUrl: true,
+                        createdAt: true
+                    }
+                },
+                productReturns: {
+                    select: {
+                        id: true,
+                        productName: true,
+                        quantity: true,
+                        reason: true,
+                        status: true,
+                        createdAt: true,
+                        ProductReturnItem: {
+                            select: {
+                                productName: true,
+                                quantity: true,
+                                reason: true
+                            }
+                        }
+                    }
+                },
                 user: {
                     select: {
                         id: true,
@@ -221,7 +274,16 @@ const getAllReports = async (req, res) => {
                 }
             },
         });
-        res.json(reports);
+
+        res.json({
+            reports,
+            pagination: {
+                total,
+                page: Number(page),
+                limit: Number(limit),
+                pages: Math.ceil(total / Number(limit))
+            }
+        });
     } catch (error) {
         logError(error, context);
         res.status(500).json({ error: 'Error retrieving reports' });
