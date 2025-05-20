@@ -97,7 +97,22 @@ const getOutlets = async (req, res) => {
 
 // Create a new outlet
 const createOutlet = async (req, res) => {
-  const { name, address, latitude, longitude, balance, email, location, tax_pin,contact ,region_id,region,country,client_type,route_id} = req.body;
+  const { 
+    name, 
+    address, 
+    latitude, 
+    longitude, 
+    balance, 
+    email, 
+    location, 
+    tax_pin,
+    contact,
+    region_id,
+    region,
+    country,
+    client_type,
+    route_id
+  } = req.body;
 
   if (!name || !address) {
     return res.status(400).json({ error: 'Name and address are required' });
@@ -121,10 +136,7 @@ const createOutlet = async (req, res) => {
         },
         region_id: parseInt(region_id),
         region: region || "Unknown",
-        route_id: parseInt(route_id),
-        // route: {
-        //   connect: { id: parseInt(route_id) } // Assuming route_id is the ID
-        // },
+        ...(route_id && { route_id: parseInt(route_id) }), // Only include route_id if provided
       },
     });
     res.status(201).json(newOutlet);
@@ -133,7 +145,6 @@ const createOutlet = async (req, res) => {
     res.status(500).json({ error: 'Failed to create outlet' });
   }
 };
-
 // Update an outlet
 const updateOutlet = async (req, res) => {
   const { id } = req.params;
