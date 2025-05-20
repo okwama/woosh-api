@@ -178,8 +178,8 @@ const createOrder = asyncHandler(async (req, res) => {
       console.log('[Order Debug] User:', req.user);
       
       // Ensure we have region and country IDs
-      const userRegionId = regionId || req.user?.region_id;
-      const userCountryId = countryId || req.user?.countryId;
+      const userRegionId = parseInt(regionId) || parseInt(req.user?.region_id);
+      const userCountryId = parseInt(countryId) || parseInt(req.user?.countryId);
       
       if (!userRegionId || !userCountryId) {
         return res.status(400).json({
@@ -195,7 +195,6 @@ const createOrder = asyncHandler(async (req, res) => {
         userCountryId: userCountryId,
         finalRegionId: userRegionId,
         finalCountryId: userCountryId
-        
       });
 
       const createdItems = [];
