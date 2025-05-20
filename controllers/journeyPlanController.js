@@ -52,6 +52,13 @@ const createJourneyPlan = async (req, res) => {
           route_name: route.name,
         },
       });
+      await prisma.salesRep.update({
+        where: { id: salesRepId },
+        data: {
+          route_id: parseInt(routeId),
+          route: route.name,
+        },
+      });
     }
 
     // Parse the date from ISO string
