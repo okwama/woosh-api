@@ -25,12 +25,13 @@ model SalesRep {
   country             String
   region_id           Int
   region              String
-  route_id            Int?
-  route               String?              @db.VarChar(100)
+  route_id            Int
+  route               String               @db.VarChar(100)
   role                String?              @default("USER")
   status              Int?                 @default(0)
   createdAt           DateTime             @default(now())
   updatedAt           DateTime             @updatedAt
+  manager_id          Int
   photoUrl            String?              @default("")
   ClientPayment       ClientPayment[]
   feedbackReports     FeedbackReport[]
@@ -292,11 +293,11 @@ model Clients {
   email              String?
   region_id          Int
   region             String
-  route_id           Int
+  route_id           Int?
   route_name         String?
   contact            String
-  tax_pin            String
-  location           String
+  tax_pin            String?
+  location           String?
   status             Int                  @default(0)
   client_type        Int?
   countryId          Int
@@ -443,7 +444,6 @@ model JourneyPlan {
   date               DateTime
   time               String
   userId             Int?
-  routeId            Int?
   clientId           Int
   status             Int       @default(0)
   checkInTime        DateTime?
@@ -455,12 +455,15 @@ model JourneyPlan {
   checkoutLongitude  Float?
   checkoutTime       DateTime?
   showUpdateLocation Boolean   @default(true)
+  routeId            Int?
   client             Clients   @relation(fields: [clientId], references: [id])
+  route              routes?   @relation(fields: [routeId], references: [id])
   user               SalesRep? @relation(fields: [userId], references: [id])
   reports            Report[]
-  route              routes?   @relation(fields: [routeId], references: [id])
+
   @@index([clientId])
   @@index([userId])
+  @@index([routeId], map: "JourneyPlan_routeId_fkey")
 }
 
 model NoticeBoard {
@@ -736,17 +739,16 @@ model Task {
 }
 
 model routes {
-  id           Int    @id @default(autoincrement())
-  name         String @db.VarChar(100)
+  id           Int           @id @default(autoincrement())
+  name         String        @db.VarChar(100)
   region       Int
-  region_name  String @db.VarChar(100)
+  region_name  String        @db.VarChar(100)
   country_id   Int
-  country_name String @db.VarChar(100)
+  country_name String        @db.VarChar(100)
   leader_id    Int
-  leader_name  String @db.VarChar(100)
+  leader_name  String        @db.VarChar(100)
   status       Int
-
-  JourneyPlan JourneyPlan[]
+  JourneyPlan  JourneyPlan[]
 }
 
 model departments {

@@ -109,7 +109,6 @@ const createOutlet = async (req, res) => {
     longitude, 
     balance, 
     email, 
-    location, 
     tax_pin,
     contact,
     region_id,
@@ -130,11 +129,10 @@ const createOutlet = async (req, res) => {
       data: {
         name,
         address,
-        location,
+        contact,
         client_type: 1,
         ...(balance !== undefined && { balance: balance.toString() }),
         ...(email && { email }),
-        ...(contact && { contact }),
         ...(tax_pin && { tax_pin }),
         latitude,
         longitude,
@@ -155,7 +153,7 @@ const createOutlet = async (req, res) => {
 // Update an outlet
 const updateOutlet = async (req, res) => {
   const { id } = req.params;
-  const { name, address, latitude, longitude, balance, email, phone, kraPin } = req.body;
+  const { name, address, latitude, longitude, balance, email, contact, tax_pin } = req.body;
 
   try {
     // First get the current outlet data
@@ -191,7 +189,6 @@ const updateOutlet = async (req, res) => {
         address,
         ...(balance !== undefined && { balance: balance.toString() }),
         ...(email && { email }),
-        ...(contact && { contact }),
         ...(tax_pin && { tax_pin }),
         ...(latitude !== undefined && { latitude }),
         ...(longitude !== undefined && { longitude }),
