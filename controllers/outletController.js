@@ -29,7 +29,7 @@ const upload = multer({
 // Get all outlets
 const getOutlets = async (req, res) => {
   try {
-    const { route_id, page = 1, limit = 10 } = req.query;
+    const { route_id, page = 1, limit = 2000 } = req.query;
     const skip = (parseInt(page) - 1) * parseInt(limit);
 
     // Build the where clause
