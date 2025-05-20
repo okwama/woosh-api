@@ -116,12 +116,14 @@ const createOutlet = async (req, res) => {
         ...(tax_pin && { tax_pin }),
         latitude,
         longitude,
-        country: {
-          connect: { id: parseInt(country) } // Assuming country is the ID
-        },
-        region_id: parseInt(region_id),
+        ...(country && {
+          country: {
+            connect: { id: parseInt(country) }
+          }
+        }),
+        ...(region_id && { region_id: parseInt(region_id) }),
         region: region || "Unknown",
-        route_id: parseInt(route_id),
+        ...(route_id && { route_id: parseInt(route_id) }),
         // route: {
         //   connect: { id: parseInt(route_id) } // Assuming route_id is the ID
         // },
