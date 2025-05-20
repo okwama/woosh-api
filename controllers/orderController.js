@@ -711,7 +711,8 @@ const createOrder = asyncHandler(async (req, res) => {
                 id: clientId
               }
             },
-            countryId: userCountryId
+            countryId: userCountryId,
+            regionId: userRegionId
           }
         });
 
