@@ -110,9 +110,11 @@ const createOutlet = async (req, res) => {
     region_id,
     region,
     country,
-    client_type,
-    route_id
+    client_type
   } = req.body;
+
+  // Get route_id from authenticated user
+  const route_id = req.user.route_id;
 
   if (!name || !address) {
     return res.status(400).json({ error: 'Name and address are required' });
@@ -136,7 +138,7 @@ const createOutlet = async (req, res) => {
         },
         region_id: parseInt(region_id),
         region: region || "Unknown",
-        ...(route_id && { route_id: parseInt(route_id) }), // Only include route_id if provided
+        route_id: route_id ? parseInt(route_id) : null, // Use authenticated user's route_id
       },
     });
     res.status(201).json(newOutlet);
