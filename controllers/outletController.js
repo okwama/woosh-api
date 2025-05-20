@@ -123,7 +123,9 @@ const createOutlet = async (req, res) => {
         }),
         ...(region_id && { region_id: parseInt(region_id) }),
         region: region || "Unknown",
-        ...(route_id && { route_id: parseInt(route_id) }),
+        ...(route_id && { 
+          route_id: typeof route_id === 'string' ? parseInt(route_id) : route_id
+        }),
         // route: {
         //   connect: { id: parseInt(route_id) } // Assuming route_id is the ID
         // },
