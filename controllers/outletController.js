@@ -73,7 +73,7 @@ const getOutlets = async (req, res) => {
         // Add any frequently used fields to avoid separate queries
       },
       skip: Math.max(0, skip), // Ensure skip is never negative
-      take: Math.min(Number(limit), 100), // Enforce maximum limit and faster conversion
+      take: Math.min(Number(limit), 2000), // Enforce maximum limit and faster conversion
       orderBy: [
         { name: 'asc' }, // Primary sort
         { id: 'asc' } // Secondary sort for consistent pagination
