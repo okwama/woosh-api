@@ -41,6 +41,7 @@ const getOutlets = async (req, res) => {
     // Get total count for pagination
     const total = await prisma.clients.count({ where });
 
+    // Fetch only required fields
     const outlets = await prisma.clients.findMany({
       where,
       select: {
@@ -50,36 +51,18 @@ const getOutlets = async (req, res) => {
         address: true,
         latitude: true,
         longitude: true,
-        email: true,
-        contact: true,
-        tax_pin: true,
-        location: true,
-        client_type: true,
-        region_id: true,
-        region: true,
-        countryId: true,
-        status: true,
-        ClientPayment: true,
-        country: true,
-        journeyPlans: true,
-        checkins: true,
-        MyOrder: true,
-        Product: true,
-        reports: true,
-        UpliftSale: true,
-        _count: true
       },
       skip,
       take: parseInt(limit),
       orderBy: {
-        name: 'asc'
+        name: 'asc',
       }
     });
 
     // Add default value for balance if it's null/undefined
     const outletsWithDefaultBalance = outlets.map(outlet => ({
       ...outlet,
-      balance: String(outlet.balance ?? "0"), // Convert balance to a string
+      balance: String(outlet.balance ?? "0"),
     }));
 
     res.json({
@@ -94,6 +77,7 @@ const getOutlets = async (req, res) => {
     res.status(500).json({ error: 'Error fetching outlets' });
   }
 };
+
 
 // Create a new outlet
 const createOutlet = async (req, res) => {
