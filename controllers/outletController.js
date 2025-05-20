@@ -42,21 +42,42 @@ const getOutlets = async (req, res) => {
     const total = await prisma.clients.count({ where });
 
     // Fetch only required fields
+    // const outlets = await prisma.clients.findMany({
+    //   where,
+    //   select: {
+    //     id: true,
+    //     name: true,
+    //     balance: true,
+    //     address: true,
+    //     latitude: true,
+    //     longitude: true,
+    //   },
+    //   skip,
+    //   take: parseInt(limit),
+    //   orderBy: {
+    //     name: 'asc',
+    //   }
+    // });
     const outlets = await prisma.clients.findMany({
-      where,
+      where: {
+        ...where, // Ensure your where conditions are properly indexed
+        // Consider adding date filters if applicable to reduce scanned rows
+      },
       select: {
         id: true,
         name: true,
-        // balance: true,
-        // address: true,
-        // latitude: true,
-        // longitude: true,
+        balance: true,
+        address: true,
+        latitude: true,
+        longitude: true,
+        // Add any frequently used fields to avoid separate queries
       },
-      skip,
-      take: parseInt(limit),
-      orderBy: {
-        name: 'asc',
-      }
+      skip: Math.max(0, skip), // Ensure skip is never negative
+      take: Math.min(Number(limit), 100), // Enforce maximum limit and faster conversion
+      orderBy: [
+        { name: 'asc' }, // Primary sort
+        { id: 'asc' } // Secondary sort for consistent pagination
+      ]
     });
 
     // Add default value for balance if it's null/undefined
