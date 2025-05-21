@@ -109,7 +109,7 @@ const createOutlet = async (req, res) => {
     longitude, 
     balance, 
     email, 
-    tax_pin,
+    
     contact,
     region_id,
     region,
@@ -133,7 +133,8 @@ const createOutlet = async (req, res) => {
         client_type: 1,
         ...(balance !== undefined && { balance: balance.toString() }),
         ...(email && { email }),
-        ...(tax_pin && { tax_pin }),
+        tax_pin: req.body.tax_pin || "0",
+        location: req.body.location || "Unknown",
         latitude,
         longitude,
         country: {
