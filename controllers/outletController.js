@@ -143,6 +143,7 @@ const createOutlet = async (req, res) => {
         region_id: parseInt(region_id),
         region: region || "Unknown",
         route_id: route_id ? parseInt(route_id) : null, // Use authenticated user's route_id
+        route_id_update: route_id ? parseInt(route_id) : null,
       },
     });
     res.status(201).json(newOutlet);
