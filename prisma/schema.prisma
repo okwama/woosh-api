@@ -295,6 +295,8 @@ model Clients {
   region             String
   route_id           Int?
   route_name         String?
+  route_id_update    Int
+  route_name_update  String               @db.VarChar(100)
   contact            String
   tax_pin            String?
   location           String?

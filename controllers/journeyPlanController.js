@@ -48,15 +48,15 @@ const createJourneyPlan = async (req, res) => {
       await prisma.clients.update({
         where: { id: parseInt(clientId) },
         data: {
-          route_id: parseInt(routeId),
-          route_name: route.name,
+          route_id_update: parseInt(routeId),
+          route_name_update: route.name,
         },
       });
       await prisma.salesRep.update({
         where: { id: salesRepId },
         data: {
-          route_id: parseInt(routeId),
-          route: route.name,
+          route_id_update: parseInt(routeId),
+          route_name_update: route.name,
         },
       });
     }
