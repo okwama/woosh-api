@@ -111,26 +111,32 @@ const createReport = async (req, res) => {
                     data: {
                         user: { connect: { id: userId } },
                         client: { connect: { id: clientId } },
-                        report: { connect: { id: report.id } }
+                        report: { connect: { id: report.id } },
+                        staff_id: userId,
+                        staff_name: salesRep.name
                     },
                 });
 
-                if (specificReport && Array.isArray(details.items)) {
-                    items = await Promise.all(details.items.map(item =>
-                        prisma.productReturnItem.create({
-                            data: {
-                                productReturn: specificReport.id,
-                                productName: item.productName || 'Unknown',
-                                quantity: item.quantity || 0,
-                                reason: item.reason || '',
-                                imageUrl: item.imageUrl || '',
-                                user: { connect: { id: userId } },
-                                client: { connect: { id: clientId } },
-                                productReturn: { connect: { id: specificReport.id } }  // ✅ Added field
-                            },
-                        })
-                    ));
+                // Add proper validation for details and items
+                if (!details || !details.items || !Array.isArray(details.items)) {
+                    logError(new Error('Invalid items data'), { ...context, details });
+                    return res.status(400).json({ error: 'Invalid items data' });
                 }
+
+                items = await Promise.all(details.items.map(item =>
+                    prisma.productReturnItem.create({
+                        data: {
+                            productReturn: specificReport.id,
+                            productName: item.productName || 'Unknown',
+                            quantity: item.quantity || 0,
+                            reason: item.reason || '',
+                            imageUrl: item.imageUrl || '',
+                            user: { connect: { id: userId } },
+                            client: { connect: { id: clientId } },
+                            productReturn: { connect: { id: specificReport.id } }
+                        },
+                    })
+                ));
                 break;
             }
             case 'PRODUCT_SAMPLE': {
@@ -164,13 +170,21 @@ const createReport = async (req, res) => {
                 return res.status(400).json({ error: 'Invalid report type' });
         }
 
-        res.status(201).json({ 
-            report, 
-            specificReport, 
-            items,
-            userId,
-            clientId
+        // Return exactly what the ProductReturn model expects with proper type handling
+        const createProductReturnResponse = (item) => ({
+            reportId: parseInt(report.id, 10),
+            productName: item.productName?.toString() || null,
+            reason: item.reason?.toString() || null,
+            imageUrl: item.imageUrl?.toString() || null,
+            quantity: item.quantity ? parseInt(item.quantity, 10) : null
         });
+
+        res.status(201).json([
+            {
+                ...createProductReturnResponse(details.items?.[0] || {}),
+                items: (details.items || []).map(item => createProductReturnResponse(item))
+            }
+        ]);
     } catch (error) {
         logError(error, context);
         res.status(500).json({ error: 'Error creating report' });
