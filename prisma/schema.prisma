@@ -29,6 +29,8 @@ model SalesRep {
   route               String               @db.VarChar(100)
   route_id_update     Int
   route_name_update   String               @db.VarChar(100)
+  visits_targets      Int
+  new_clients         Int
   role                String?              @default("USER")
   status              Int?                 @default(0)
   createdAt           DateTime             @default(now())
@@ -61,8 +63,10 @@ model SalesRep {
 model LoginHistory {
   id         Int       @id @default(autoincrement())
   userId     Int
+  sessionStart String?
   loginAt    DateTime  @default(now())
   logoutAt   DateTime?
+  sessionEnd String?
   isLate     Boolean?  @default(false)
   isEarly    Boolean?  @default(false)
   timezone   String?   @default("UTC")
@@ -190,6 +194,7 @@ model Product {
   name            String
   category_id     Int
   category        String
+  unit_cost       Decimal           @db.Decimal(11, 2)
   description     String?
   currentStock    Int?
   createdAt       DateTime          @default(now())
@@ -847,6 +852,25 @@ model accounts {
   description String  @db.VarChar(100)
   balance     Decimal @db.Decimal(11, 2)
   status      Int
+}
+
+model PurchaseOrder {
+  id         Int      @id @default(autoincrement())
+  vendor_id  Int
+  order_id   Int
+  order_date DateTime @db.DateTime(0)
+  admin_id   Int
+  notes      String   @db.Text
+  status     String   @db.VarChar(30)
+}
+
+model PurchaseOrderItems {
+  id                Int     @id @default(autoincrement())
+  po_id             Int
+  product_id        Int
+  quantity          Int
+  unit_cost         Decimal @db.Decimal(11, 2)
+  received_quantity Int
 }
 
 enum ReportType {

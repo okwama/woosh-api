@@ -19,50 +19,52 @@ const calculateLoginHours = async (req, res) => {
     let dateFilter = {};
     if (startDate && endDate) {
       dateFilter = {
-        createdAt: {
+        loginAt: {
           gte: new Date(startDate),
           lte: new Date(endDate)
         }
       };
     }
 
-    // Get all tokens for the user
-    const tokens = await prisma.token.findMany({
+    // Get all login sessions for the user
+    const sessions = await prisma.loginHistory.findMany({
       where: {
-        salesRepId: parseInt(userId),
+        userId: parseInt(userId),
+        logoutAt: { not: null }, // Only count completed sessions
         ...dateFilter
       },
       select: {
-        createdAt: true,
-        expiresAt: true
+        duration: true,
+        isLate: true,
+        isEarly: true,
+        status: true
       },
       orderBy: {
-        createdAt: 'asc'
+        loginAt: 'desc'
       }
     });
 
-    // Calculate total login hours
-    let totalMinutes = 0;
-    let sessionCount = 0;
-
-    tokens.forEach(token => {
-      if (token.expiresAt) {
-        const duration = token.expiresAt.getTime() - token.createdAt.getTime();
-        totalMinutes += duration / (1000 * 60); // Convert milliseconds to minutes
-        sessionCount++;
-      }
-    });
-
+    // Calculate total minutes from duration field
+    const totalMinutes = sessions.reduce((acc, session) => acc + (session.duration || 0), 0);
     const hours = Math.floor(totalMinutes / 60);
     const minutes = Math.round(totalMinutes % 60);
+
+    // Calculate late/early statistics
+    const lateCount = sessions.filter(s => s.isLate).length;
+    const earlyCount = sessions.filter(s => s.isEarly).length;
 
     res.json({
       userId,
       totalHours: hours,
       totalMinutes: minutes,
-      sessionCount,
+      sessionCount: sessions.length,
       formattedDuration: `${hours}h ${minutes}m`,
-      averageSessionDuration: sessionCount > 0 ? `${Math.floor(totalMinutes / sessionCount)}m` : '0m'
+      averageSessionDuration: sessions.length > 0 ? `${Math.floor(totalMinutes / sessions.length)}m` : '0m',
+      lateCount,
+      earlyCount,
+      punctualityRate: sessions.length > 0 
+        ? `${Math.round(((sessions.length - lateCount) / sessions.length) * 100)}%` 
+        : '0%'
     });
   } catch (error) {
     console.error('Error calculating login hours:', error);

@@ -1,3 +1,4 @@
+const { DateTime } = require('luxon');
 const prisma = require('../lib/prisma');
 
 // Constants for shift times
@@ -100,159 +101,224 @@ const checkConsecutiveLateLogins = async (userId) => {
 
 // Record user login
 const recordLogin = async (req, res) => {
+  console.log('[DEBUG] Starting recordLogin', {
+    serverTime: DateTime.now().toISO(),
+    serverTZ: DateTime.now().zoneName
+  });
+
   try {
-    const { userId } = req.body;
+    const { userId, clientTime } = req.body;
     const timezone = req.headers['timezone'] || 'Africa/Nairobi';
-    const now = new Date();
 
-    if (!userId) {
-      return res.status(400).json({ error: 'User ID is required' });
+    // Validate timezone format
+    if (!/^[A-Za-z_]+\/[A-Za-z_]+$/.test(timezone)) {
+      return res.status(400).json({ error: 'Invalid IANA timezone format' });
     }
 
-    // Convert to client's timezone
-    const clientTime = new Date(now.toLocaleString('en-US', { timeZone: timezone }));
-    const currentHour = clientTime.getHours();
-    const currentMinute = clientTime.getMinutes();
+    // Parse with strict timezone handling
+    const userLoginTime = DateTime.fromISO(clientTime, { 
+      zone: timezone,
+      setZone: true 
+    });
 
-    // Check if current time is before 9 AM in client's timezone
-    if (currentHour < SHIFT_START_HOUR || (currentHour === SHIFT_START_HOUR && currentMinute < SHIFT_START_MINUTE)) {
-      return res.status(400).json({ 
-        error: 'Sessions can only be started after 9:00 AM',
-        currentTime: `${currentHour}:${currentMinute.toString().padStart(2, '0')}`,
-        timezone: timezone
+    if (!userLoginTime.isValid) {
+      return res.status(400).json({
+        error: 'Invalid time format',
+        received: clientTime,
+        expectedFormat: 'ISO8601 with timezone'
       });
     }
 
-    const user = await prisma.salesRep.findUnique({
-      where: { id: parseInt(userId) }
+    // Calculate shift times in user's timezone
+    const shiftStart = userLoginTime.set({
+      hour: SHIFT_START_HOUR,
+      minute: SHIFT_START_MINUTE,
+      second: 0
     });
 
-    if (!user) {
-      return res.status(404).json({ error: 'User not found' });
-    }
-
-    const activeSession = await prisma.loginHistory.findFirst({
-      where: { userId: parseInt(userId), logoutAt: null }
+    const shiftEnd = userLoginTime.set({
+      hour: SHIFT_END_HOUR,
+      minute: SHIFT_END_MINUTE,
+      second: 0
     });
 
-    if (activeSession) {
-      return res.status(400).json({ 
-        error: 'User already has an active session',
-        sessionId: activeSession.id
-      });
-    }
+    // Determine punctuality
+    const isLate = userLoginTime > shiftStart.plus({ minutes: LATE_THRESHOLD_MINUTES });
+    const isEarly = userLoginTime < shiftStart;
 
-    // Calculate shift times in client's timezone
-    const shiftStart = createTime(clientTime, SHIFT_START_HOUR, SHIFT_START_MINUTE);
-    const shiftEnd = createTime(clientTime, SHIFT_END_HOUR, SHIFT_END_MINUTE);
-    const isLate = clientTime > new Date(shiftStart.getTime() + LATE_THRESHOLD_MINUTES * 60000);
-
+    // Create database record
     const loginRecord = await prisma.loginHistory.create({
       data: {
         userId: parseInt(userId),
-        loginAt: now,
+        loginAt: userLoginTime.toUTC().toJSDate(), // UTC for queries
+        sessionStart: userLoginTime.toFormat('yyyy-MM-dd HH:mm:ss'), // Local time string
         timezone,
-        shiftStart,
-        shiftEnd,
+        shiftStart: shiftStart.toUTC().toJSDate(),
+        shiftEnd: shiftEnd.toUTC().toJSDate(),
         isLate,
-        status: isLate ? '0' : '1'
+        isEarly,
+        status: isLate ? 'LATE' : isEarly ? 'EARLY' : 'ON_TIME'
+      },
+      include: { user: true }
+    });
+
+    // Debug output with time context
+    console.log('[DEBUG] Time storage verification:', {
+      input: clientTime,
+      stored: {
+        utc: loginRecord.loginAt,
+        local: loginRecord.sessionStart,
+        timezone: loginRecord.timezone
+      },
+      comparisons: {
+        isLate,
+        thresholdMinutes: LATE_THRESHOLD_MINUTES,
+        localShift: `${SHIFT_START_HOUR}:${String(SHIFT_START_MINUTE).padStart(2, '0')}`
       }
     });
 
-    if (isLate) {
-      await checkConsecutiveLateLogins(userId);
-    }
-
     res.status(201).json({
-      message: 'Login recorded successfully',
-      loginRecord,
-      isLate,
-      shiftStart,
-      shiftEnd,
-      loginAt: now,
-      timezone,
-      clientTime: clientTime
+      success: true,
+      record: {
+        ...loginRecord,
+        // Frontend can directly use sessionStart without conversion
+        localTime: loginRecord.sessionStart,
+        timezone: loginRecord.timezone
+      }
     });
+
   } catch (error) {
-    console.error('Error recording login:', error);
-    res.status(500).json({ error: 'Failed to record login' });
+    console.error('[ERROR]', {
+      timestamp: DateTime.now().toISO(),
+      error: error.message,
+      stack: error.stack,
+      requestDetails: {
+        body: req.body,
+        headers: req.headers
+      }
+    });
+    res.status(500).json({ 
+      error: 'Login recording failed',
+      ...(process.env.NODE_ENV === 'development' && { 
+        details: error.message 
+      })
+    });
   }
 };
 
-
 // Record user logout
 const recordLogout = async (req, res) => {
+  console.log('[DEBUG] Starting recordLogout', {
+    serverTime: DateTime.now().toISO(),
+    serverTZ: DateTime.now().zoneName
+  });
+
   try {
     const { userId } = req.body;
     const timezone = req.headers['timezone'] || 'Africa/Nairobi';
-    const now = new Date();
 
-    // Find active session
+    // Find active session (including timezone context)
     const activeSession = await prisma.loginHistory.findFirst({
       where: {
         userId: parseInt(userId),
         logoutAt: null
-      }
+      },
+      include: { user: true }
     });
 
     if (!activeSession) {
-      return res.status(404).json({ error: 'No active session found' });
+      console.error('[ERROR] No active session found for user:', userId);
+      return res.status(404).json({ 
+        error: 'No active session found',
+        userId 
+      });
     }
 
-    // Calculate shift end time in user's timezone
-    const clientTime = new Date(now.toLocaleString('en-US', { timeZone: timezone }));
-    const shiftEnd = createTime(clientTime, SHIFT_END_HOUR, SHIFT_END_MINUTE);
+    // Parse times with proper timezone handling
+    const loginTime = DateTime.fromJSDate(activeSession.loginAt, { zone: activeSession.timezone });
+    const logoutTime = DateTime.now().setZone(timezone);
+    const shiftEnd = DateTime.fromJSDate(activeSession.shiftEnd, { zone: activeSession.timezone });
 
-    // Check if logout is before shift end
-    const isEarly = clientTime < new Date(shiftEnd.getTime() - EARLY_LOGOUT_THRESHOLD_MINUTES * 60000);
+    // Calculate timing status
+    const earlyThreshold = shiftEnd.minus({ minutes: EARLY_LOGOUT_THRESHOLD_MINUTES });
+    const overtimeThreshold = shiftEnd.plus({ minutes: OVERTIME_THRESHOLD_MINUTES });
     
-    // Check if logout is after overtime threshold
-    const isOvertime = clientTime > new Date(shiftEnd.getTime() + OVERTIME_THRESHOLD_MINUTES * 60000);
+    const isEarly = logoutTime < earlyThreshold;
+    const isOvertime = logoutTime > overtimeThreshold;
+    const durationMinutes = Math.floor(logoutTime.diff(loginTime, 'minutes').minutes);
 
-    // Calculate session duration in minutes
-    const duration = Math.floor((now - activeSession.loginAt) / (1000 * 60));
-
-    // Determine status based on logout time
+    // Determine comprehensive status
     let status;
-    if (isEarly) {
-      status = '1'; // Early logout
+    if (activeSession.status === 'LATE' && isEarly) {
+      status = 'LATE_EARLY';
+    } else if (activeSession.status === 'LATE') {
+      status = 'LATE_REGULAR';
+    } else if (isEarly) {
+      status = 'EARLY';
     } else if (isOvertime) {
-      status = '2'; // Overtime
+      status = 'OVERTIME';
     } else {
-      status = '0'; // On time
+      status = 'REGULAR';
     }
 
-    // Update login record
+    // Update session record
     const updatedSession = await prisma.loginHistory.update({
       where: { id: activeSession.id },
       data: {
-        logoutAt: now,
+        logoutAt: logoutTime.toUTC().toJSDate(),
+        sessionEnd: logoutTime.toFormat('yyyy-MM-dd HH:mm:ss'), // Local time string
         isEarly,
-        duration,
+        
+        duration: durationMinutes,
         status
       }
     });
 
-    res.status(200).json({
-      message: 'Logout recorded successfully',
-      session: updatedSession,
-      isEarly,
-      isOvertime,
-      duration: `${Math.floor(duration / 60)}h ${duration % 60}m`
+    console.log('[DEBUG] Logout recorded:', {
+      userId,
+      loginTime: loginTime.toISO(),
+      logoutTime: logoutTime.toISO(),
+      timezone,
+      duration: `${Math.floor(durationMinutes/60)}h ${durationMinutes%60}m`,
+      status
     });
+
+    res.status(200).json({
+      success: true,
+      localTime: updatedSession.sessionEnd,
+      timezone,
+      duration: durationMinutes,
+      status,
+      isEarly,
+      isOvertime
+    });
+
   } catch (error) {
-    console.error('Error recording logout:', error);
-    res.status(500).json({ error: 'Failed to record logout' });
+    console.error('[ERROR] Logout failed:', {
+      time: DateTime.now().toISO(),
+      error: error.message,
+      stack: error.stack,
+      request: {
+        body: req.body,
+        headers: req.headers
+      }
+    });
+    res.status(500).json({ 
+      error: 'Logout recording failed',
+      details: process.env.NODE_ENV === 'development' ? error.message : null
+    });
   }
 };
 
-// Get user's session history
+// // Get user's session history
+// const { DateTime } = require('luxon');
+
 const getSessionHistory = async (req, res) => {
   try {
     const { userId } = req.params;
     const { startDate, endDate } = req.query;
 
-    // Build date filter if provided
+    // Build date filter
     let dateFilter = {};
     if (startDate && endDate) {
       dateFilter = {
@@ -273,22 +339,98 @@ const getSessionHistory = async (req, res) => {
       }
     });
 
+    const formattedSessions = sessions.map(session => {
+      // Calculate duration using the most accurate available time fields
+      let duration = null;
+      let durationMinutes = null;
+
+      // Case 1: Both sessionStart and sessionEnd exist (preferred)
+      if (session.sessionStart && session.sessionEnd) {
+        const start = DateTime.fromFormat(session.sessionStart, 'yyyy-MM-dd HH:mm:ss', { 
+          zone: session.timezone || 'UTC' 
+        });
+        const end = DateTime.fromFormat(session.sessionEnd, 'yyyy-MM-dd HH:mm:ss', { 
+          zone: session.timezone || 'UTC' 
+        });
+        durationMinutes = end.diff(start, 'minutes').minutes;
+      }
+      // Case 2: Only sessionStart exists
+      else if (session.sessionStart && session.logoutAt) {
+        const start = DateTime.fromFormat(session.sessionStart, 'yyyy-MM-dd HH:mm:ss', { 
+          zone: session.timezone || 'UTC' 
+        });
+        const end = DateTime.fromJSDate(session.logoutAt).setZone(session.timezone || 'UTC');
+        durationMinutes = end.diff(start, 'minutes').minutes;
+      }
+      // Case 3: Only sessionEnd exists
+      else if (session.sessionEnd && session.loginAt) {
+        const start = DateTime.fromJSDate(session.loginAt).setZone(session.timezone || 'UTC');
+        const end = DateTime.fromFormat(session.sessionEnd, 'yyyy-MM-dd HH:mm:ss', { 
+          zone: session.timezone || 'UTC' 
+        });
+        durationMinutes = end.diff(start, 'minutes').minutes;
+      }
+      // Case 4: Fallback to loginAt/logoutAt
+      else if (session.loginAt && session.logoutAt) {
+        const start = DateTime.fromJSDate(session.loginAt);
+        const end = DateTime.fromJSDate(session.logoutAt);
+        durationMinutes = end.diff(start, 'minutes').minutes;
+      }
+
+      // Format duration if calculated
+      if (durationMinutes !== null) {
+        const absMinutes = Math.abs(durationMinutes);
+        const hours = Math.floor(absMinutes / 60);
+        const mins = absMinutes % 60;
+        duration = `${durationMinutes < 0 ? '-' : ''}${hours}h ${mins}m`;
+      }
+
+      return {
+        ...session,
+        duration,
+        status: session.status === '1' ? 'Early' : 
+               session.status === '2' ? 'Overtime' : 
+               session.isLate ? 'Late' : 'On Time',
+        // Add these flags to help debug time sources
+        _timeSource: session.sessionStart && session.sessionEnd ? 'sessionTimes' :
+                    session.sessionStart || session.sessionEnd ? 'mixedTimes' : 'utcTimes'
+      };
+    });
+
     res.status(200).json({
       userId,
       totalSessions: sessions.length,
-      sessions: sessions.map(session => ({
-        ...session,
-        duration: session.duration ? `${Math.floor(session.duration / 60)}h ${session.duration % 60}m` : null,
-        status: session.status === '1' ? 'Early' : 
-                session.status === '2' ? 'Overtime' : 
-                session.isLate ? 'Late' : 'On Time'
-      }))
+      sessions: formattedSessions
     });
+
   } catch (error) {
     console.error('Error fetching session history:', error);
     res.status(500).json({ error: 'Failed to fetch session history' });
   }
 };
+
+// Helper function to format duration
+function formatDuration(minutes) {
+  if (!minutes) return null;
+  const hours = Math.floor(minutes / 60);
+  const mins = minutes % 60;
+  return `${hours}h ${mins}m`;
+}
+
+// Helper function to determine status label
+function determineStatus(session) {
+  switch (session.status) {
+    case '1': return 'Early';
+    case '2': return 'Overtime';
+    case 'LATE': return 'Late';
+    case 'EARLY': return 'Early';
+    case 'ON_TIME': return 'On Time';
+    default: 
+      if (session.isLate) return 'Late';
+      if (session.isEarly) return 'Early';
+      return 'On Time';
+  }
+}
 
 module.exports = {
   recordLogin,
