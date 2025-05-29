@@ -1,6 +1,7 @@
 const multer = require('multer');
 const path = require('path');
 const ImageKit = require('imagekit');
+const sharp = require('sharp');
 require('dotenv').config(); // Ensure environment variables are loaded
 
 // Configure ImageKit
@@ -32,6 +33,30 @@ const upload = multer({
   }
 }).single('attachment');
 
+// Helper function to compress image
+const compressImage = async (buffer, mimetype) => {
+  // Skip compression for PDFs
+  if (mimetype === 'application/pdf') {
+    return buffer;
+  }
+
+  try {
+    const compressed = await sharp(buffer)
+      .resize(1200, 1200, { // Max dimensions
+        fit: 'inside',
+        withoutEnlargement: true
+      })
+      .jpeg({ quality: 80 }) // Compress to JPEG with 80% quality
+      .toBuffer();
+    
+    console.log('Image compressed successfully');
+    return compressed;
+  } catch (error) {
+    console.error('Compression error:', error);
+    return buffer; // Return original buffer if compression fails
+  }
+};
+
 // Helper function to upload buffer to ImageKit
 const uploadToImageKit = async (fileBuffer, fileName, folder) => {
   try {
@@ -44,7 +69,6 @@ const uploadToImageKit = async (fileBuffer, fileName, folder) => {
       folder
     });
     
-    console.log('File uploaded successfully to ImageKit:', result.url);
     return result;
   } catch (error) {
     console.error('ImageKit upload error:', error);
@@ -68,10 +92,12 @@ exports.uploadImage = async (req, res) => {
     console.log('Processing file upload:', req.file.originalname, req.file.mimetype, req.file.size);
 
     try {
+      // Compress image before upload
+      const compressedBuffer = await compressImage(req.file.buffer, req.file.mimetype);
       const folder = 'whoosh';
       const uniqueFilename = `${Date.now()}-${Math.round(Math.random() * 1E9)}${path.extname(req.file.originalname)}`;
 
-      const result = await uploadToImageKit(req.file.buffer, uniqueFilename, folder);
+      const result = await uploadToImageKit(compressedBuffer, uniqueFilename, folder);
       console.log('File uploaded successfully to ImageKit:', result.url);
 
       res.json({ 
