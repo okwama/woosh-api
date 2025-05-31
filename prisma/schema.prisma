@@ -16,65 +16,68 @@ model User {
 }
 
 model SalesRep {
-  id                  Int                  @id @default(autoincrement())
-  name                String
-  email               String               @unique
-  phoneNumber         String               @unique
-  password            String
-  countryId           Int
-  country             String
-  region_id           Int
-  region              String
-  route_id            Int
-  route               String               @db.VarChar(100)
-  route_id_update     Int
-  route_name_update   String               @db.VarChar(100)
-  visits_targets      Int
-  new_clients         Int
-  role                String?              @default("USER")
-  status              Int?                 @default(0)
-  createdAt           DateTime             @default(now())
-  updatedAt           DateTime             @updatedAt
-  manager_id          Int
-  photoUrl            String?              @default("")
-  ClientPayment       ClientPayment[]
-  feedbackReports     FeedbackReport[]
-  journeyPlans        JourneyPlan[]
-  LoginHistory        LoginHistory[]
-  MyOrder             MyOrder[]
-  productReports      ProductReport[]
-  productReturns      ProductReturn[]
-  productReturnItems  ProductReturnItem[]
-  productsSamples     ProductsSample[]
-  productsSampleItems ProductsSampleItem[]
-  reports             Report[]
-  countryRelation     Country              @relation(fields: [countryId], references: [id])
-  targets             Target[]
-  tokens              Token[]
-  UpliftSale          UpliftSale[]
-  visibilityReports   VisibilityReport[]
-  leaves              Leave[]
-  Manager             Manager?
-  Task                Task[]
+  id                   Int                  @id @default(autoincrement())
+  name                 String
+  email                String               @unique
+  phoneNumber          String               @unique
+  password             String
+  countryId            Int
+  country              String
+  region_id            Int
+  region               String
+  route_id             Int
+  route                String               @db.VarChar(100)
+  route_id_update      Int
+  route_name_update    String               @db.VarChar(100)
+  visits_targets       Int
+  new_clients          Int
+  role                 String?              @default("USER")
+  manager_type         Int
+  status               Int?                 @default(0)
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
+  retail_manager       Int
+  key_channel_manager  Int
+  distribution_manager Int
+  photoUrl             String?              @default("")
+  ClientPayment        ClientPayment[]
+  feedbackReports      FeedbackReport[]
+  journeyPlans         JourneyPlan[]
+  LoginHistory         LoginHistory[]
+  MyOrder              MyOrder[]
+  productReports       ProductReport[]
+  productReturns       ProductReturn[]
+  productReturnItems   ProductReturnItem[]
+  productsSamples      ProductsSample[]
+  productsSampleItems  ProductsSampleItem[]
+  reports              Report[]
+  countryRelation      Country              @relation(fields: [countryId], references: [id])
+  targets              Target[]
+  tokens               Token[]
+  UpliftSale           UpliftSale[]
+  visibilityReports    VisibilityReport[]
+  leaves               Leave[]
+  Manager              Manager?
+  Task                 Task[]
 
   @@index([countryId], map: "SalesRep_countryId_fkey")
 }
 
 model LoginHistory {
-  id         Int       @id @default(autoincrement())
-  userId     Int
+  id           Int       @id @default(autoincrement())
+  userId       Int
+  loginAt      DateTime  @default(now())
+  logoutAt     DateTime?
+  isLate       Boolean?  @default(false)
+  isEarly      Boolean?  @default(false)
+  timezone     String?   @default("UTC")
+  shiftStart   DateTime?
+  shiftEnd     DateTime?
+  duration     Int?
+  status       String?   @default("ACTIVE")
+  sessionEnd   String?
   sessionStart String?
-  loginAt    DateTime  @default(now())
-  logoutAt   DateTime?
-  sessionEnd String?
-  isLate     Boolean?  @default(false)
-  isEarly    Boolean?  @default(false)
-  timezone   String?   @default("UTC")
-  shiftStart DateTime?
-  shiftEnd   DateTime?
-  duration   Int?
-  status     String?   @default("ACTIVE")
-  user       SalesRep  @relation(fields: [userId], references: [id])
+  user         SalesRep  @relation(fields: [userId], references: [id])
 
   @@index([userId])
   @@index([loginAt])

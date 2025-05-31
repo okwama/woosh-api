@@ -59,52 +59,27 @@ const getProducts = async (req, res) => {
     });
 
     // Get price options for the category_id of each product
-    const categoryIds = [...new Set(products.map(product => product.category_id))];
-    
-    // Batch fetch categories with price options
-    const categoriesWithPriceOptions = await prisma.category.findMany({
-      where: {
-        id: {
-          in: categoryIds
+    const productsWithPriceOptions = await Promise.all(products.map(async (product) => {
+      const categoryWithPriceOptions = await prisma.category.findUnique({
+        where: { id: product.category_id },
+        include: {
+          priceOptions: true
         }
-      },
-      include: {
-        priceOptions: true
-      }
-    });
+      });
 
-    // Create a map for quick lookup
-    const categoryMap = new Map(
-      categoriesWithPriceOptions.map(category => [category.id, category])
-    );
-
-    // Batch fetch store quantities
-    const productIds = products.map(product => product.id);
-    const storeQuantities = await prisma.storeQuantity.findMany({
-      where: {
-        productId: {
-          in: productIds
+      // Get store quantities for this product
+      const storeQuantities = await prisma.storeQuantity.findMany({
+        where: { productId: product.id },
+        include: {
+          store: true
         }
-      },
-      include: {
-        store: true
-      }
-    });
+      });
 
-    // Create a map for quick lookup
-    const storeQuantityMap = new Map();
-    storeQuantities.forEach(quantity => {
-      if (!storeQuantityMap.has(quantity.productId)) {
-        storeQuantityMap.set(quantity.productId, []);
-      }
-      storeQuantityMap.get(quantity.productId).push(quantity);
-    });
-
-    // Combine the data
-    const productsWithPriceOptions = products.map(product => ({
-      ...product,
-      priceOptions: categoryMap.get(product.category_id)?.priceOptions || [],
-      storeQuantities: storeQuantityMap.get(product.id) || []
+      return {
+        ...product,
+        priceOptions: categoryWithPriceOptions?.priceOptions || [],
+        storeQuantities: storeQuantities
+      };
     }));
 
     // Get total count for pagination
