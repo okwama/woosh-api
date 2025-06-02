@@ -307,6 +307,17 @@ const deleteAccount = async (req, res) => {
     await prisma.productsSampleItem.deleteMany({ where: { userId } });
     await prisma.report.deleteMany({ where: { userId } });
     await prisma.target.deleteMany({ where: { salesRepId: userId } });
+        // Delete UpliftSaleItem records for all UpliftSale(s) belonging to this user
+    const userUpliftSales = await prisma.upliftSale.findMany({
+      where: { userId },
+      select: { id: true }
+    });
+    const upliftSaleIds = userUpliftSales.map(u => u.id);
+    if (upliftSaleIds.length > 0) {
+      await prisma.upliftSaleItem.deleteMany({
+        where: { upliftSaleId: { in: upliftSaleIds } }
+      });
+    }
     await prisma.upliftSale.deleteMany({ where: { userId } });
     await prisma.visibilityReport.deleteMany({ where: { userId } });
     await prisma.leave.deleteMany({ where: { userId } });
