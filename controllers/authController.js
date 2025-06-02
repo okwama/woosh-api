@@ -290,18 +290,47 @@ const deleteAccount = async (req, res) => {
       return res.status(400).json({ error: 'User ID is required' });
     }
 
-    // Delete UpliftSaleItem records for all UpliftSale(s) belonging to this user FIRST
-    const userUpliftSales = await prisma.upliftSale.findMany({
-      where: { userId },
-      select: { id: true }
-    });
+    // 1. UpliftSaleItem -> UpliftSale
+    const userUpliftSales = await prisma.upliftSale.findMany({ where: { userId }, select: { id: true } });
     const upliftSaleIds = userUpliftSales.map(u => u.id);
     if (upliftSaleIds.length > 0) {
-      await prisma.upliftSaleItem.deleteMany({
-        where: { upliftSaleId: { in: upliftSaleIds } }
-      });
+      await prisma.upliftSaleItem.deleteMany({ where: { upliftSaleId: { in: upliftSaleIds } } });
     }
     await prisma.upliftSale.deleteMany({ where: { userId } });
+
+    // 2. ProductReturnItem -> ProductReturn
+    const userProductReturns = await prisma.productReturn.findMany({ where: { userId }, select: { id: true } });
+    const productReturnIds = userProductReturns.map(p => p.id);
+    if (productReturnIds.length > 0) {
+      await prisma.productReturnItem.deleteMany({ where: { productReturnId: { in: productReturnIds } } });
+    }
+    await prisma.productReturn.deleteMany({ where: { userId } });
+
+    // 3. ProductsSampleItem -> ProductsSample
+    const userProductsSamples = await prisma.productsSample.findMany({ where: { userId }, select: { id: true } });
+    const productsSampleIds = userProductsSamples.map(p => p.id);
+    if (productsSampleIds.length > 0) {
+      await prisma.productsSampleItem.deleteMany({ where: { productsSampleId: { in: productsSampleIds } } });
+    }
+    await prisma.productsSample.deleteMany({ where: { userId } });
+
+    // 4. OrderItem -> MyOrder
+    const userOrders = await prisma.myOrder.findMany({ where: { userId }, select: { id: true } });
+    const orderIds = userOrders.map(o => o.id);
+    if (orderIds.length > 0) {
+      await prisma.orderItem.deleteMany({ where: { orderId: { in: orderIds } } });
+    }
+    await prisma.myOrder.deleteMany({ where: { userId } });
+
+    // 5. FeedbackReport, ProductReport, VisibilityReport -> Report
+    const userReports = await prisma.report.findMany({ where: { userId }, select: { id: true } });
+    const reportIds = userReports.map(r => r.id);
+    if (reportIds.length > 0) {
+      await prisma.feedbackReport.deleteMany({ where: { reportId: { in: reportIds } } });
+      await prisma.productReport.deleteMany({ where: { reportId: { in: reportIds } } });
+      await prisma.visibilityReport.deleteMany({ where: { reportId: { in: reportIds } } });
+    }
+    await prisma.report.deleteMany({ where: { userId } });
 
     // Now delete all other related records
     await prisma.task.deleteMany({ where: { salesRepId: userId } });
@@ -311,15 +340,8 @@ const deleteAccount = async (req, res) => {
     await prisma.feedbackReport.deleteMany({ where: { userId } });
     await prisma.journeyPlan.deleteMany({ where: { userId } });
     await prisma.loginHistory.deleteMany({ where: { userId } });
-    await prisma.myOrder.deleteMany({ where: { userId } });
     await prisma.productReport.deleteMany({ where: { userId } });
-    await prisma.productReturn.deleteMany({ where: { userId } });
-    await prisma.productReturnItem.deleteMany({ where: { userId } });
-    await prisma.productsSample.deleteMany({ where: { userId } });
-    await prisma.productsSampleItem.deleteMany({ where: { userId } });
-    await prisma.report.deleteMany({ where: { userId } });
     await prisma.target.deleteMany({ where: { salesRepId: userId } });
-    await prisma.visibilityReport.deleteMany({ where: { userId } });
     await prisma.leave.deleteMany({ where: { userId } });
 
     // Finally, delete the user
