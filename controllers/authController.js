@@ -290,8 +290,20 @@ const deleteAccount = async (req, res) => {
       return res.status(400).json({ error: 'User ID is required' });
     }
 
-    // Manually delete all related records
+    // Delete UpliftSaleItem records for all UpliftSale(s) belonging to this user FIRST
+    const userUpliftSales = await prisma.upliftSale.findMany({
+      where: { userId },
+      select: { id: true }
+    });
+    const upliftSaleIds = userUpliftSales.map(u => u.id);
+    if (upliftSaleIds.length > 0) {
+      await prisma.upliftSaleItem.deleteMany({
+        where: { upliftSaleId: { in: upliftSaleIds } }
+      });
+    }
     await prisma.upliftSale.deleteMany({ where: { userId } });
+
+    // Now delete all other related records
     await prisma.task.deleteMany({ where: { salesRepId: userId } });
     await prisma.token.deleteMany({ where: { salesRepId: userId } });
     await prisma.manager.deleteMany({ where: { userId } });
@@ -307,18 +319,6 @@ const deleteAccount = async (req, res) => {
     await prisma.productsSampleItem.deleteMany({ where: { userId } });
     await prisma.report.deleteMany({ where: { userId } });
     await prisma.target.deleteMany({ where: { salesRepId: userId } });
-        // Delete UpliftSaleItem records for all UpliftSale(s) belonging to this user
-    const userUpliftSales = await prisma.upliftSale.findMany({
-      where: { userId },
-      select: { id: true }
-    });
-    const upliftSaleIds = userUpliftSales.map(u => u.id);
-    if (upliftSaleIds.length > 0) {
-      await prisma.upliftSaleItem.deleteMany({
-        where: { upliftSaleId: { in: upliftSaleIds } }
-      });
-    }
-    await prisma.upliftSale.deleteMany({ where: { userId } });
     await prisma.visibilityReport.deleteMany({ where: { userId } });
     await prisma.leave.deleteMany({ where: { userId } });
 
