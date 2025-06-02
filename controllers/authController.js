@@ -71,6 +71,8 @@ const register = async (req, res) => {
           updatedAt: new Date(),
           route_id: route_id || 1,
           route: route || "Kilimani",
+          route_id_update: 1, // hardcoded default value
+          route_name_update: "Kilimani", // hardcoded default value
         },
         include: {
           countryRelation: true
