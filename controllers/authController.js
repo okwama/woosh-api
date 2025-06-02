@@ -73,6 +73,7 @@ const register = async (req, res) => {
           route: route || "Kilimani",
           route_id_update: 1, // hardcoded default value
           route_name_update: "Kilimani", // hardcoded default value
+          visits_targets: 0, // hardcoded default value
         },
         include: {
           countryRelation: true
