@@ -77,7 +77,7 @@ model LoginHistory {
   status       String?   @default("ACTIVE")
   sessionEnd   String?
   sessionStart String?
-  user         SalesRep  @relation(fields: [userId], references: [id])
+  user         SalesRep  @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([loginAt])
@@ -93,7 +93,7 @@ model Target {
   achieved      Boolean  @default(false)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
-  salesRep      SalesRep @relation(fields: [salesRepId], references: [id])
+  salesRep      SalesRep @relation(fields: [salesRepId], references: [id], onDelete: Cascade)
 
   @@index([salesRepId], map: "Target_salesRepId_fkey")
 }
@@ -103,7 +103,7 @@ model Manager {
   userId     Int              @unique
   department String?
   checkins   ManagerCheckin[]
-  user       SalesRep         @relation(fields: [userId], references: [id])
+  user       SalesRep         @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("managers")
 }
@@ -116,7 +116,7 @@ model Token {
   expiresAt   DateTime
   blacklisted Boolean   @default(false)
   lastUsedAt  DateTime?
-  user        SalesRep  @relation(fields: [salesRepId], references: [id])
+  user        SalesRep  @relation(fields: [salesRepId], references: [id], onDelete: Cascade)
 
   @@index([salesRepId], map: "Token_userId_fkey")
   @@index([blacklisted])
@@ -342,7 +342,7 @@ model ClientPayment {
   method   String?
   userId   Int
   client   Clients  @relation(fields: [clientId], references: [id])
-  user     SalesRep @relation(fields: [userId], references: [id])
+  user     SalesRep @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([clientId], map: "ClientPayment_clientId_fkey")
   @@index([userId], map: "ClientPayment_userId_fkey")
@@ -410,42 +410,45 @@ model OrderItem {
 }
 
 model MyOrder {
-  id                 Int         @id @default(autoincrement())
-  totalAmount        Float
-  amountPaid         Decimal     @db.Decimal(11, 2)
-  balance            Decimal     @db.Decimal(11, 2)
-  comment            String
-  customerType       String
-  customerId         String
-  customerName       String
-  orderDate          DateTime    @default(now())
-  riderId            Int?
-  riderName          String?
-  status             Int         @default(0)
-  approvedTime       String?
-  dispatchTime       String?
-  deliveryLocation   String?
-  complete_latitude  String?
-  complete_longitude String?
-  complete_address   String?
-  pickupTime         String?
-  deliveryTime       String?
-  cancel_reason      String?
-  recepient          String?
-  userId             Int
-  clientId           Int
-  countryId          Int
-  regionId           Int
-  createdAt          DateTime    @default(now())
-  updatedAt          DateTime    @updatedAt
-  approved_by        String      @db.VarChar(200)
-  approved_by_name   String      @db.VarChar(200)
-  storeId            Int?
-  imageUrl           String?
-  client             Clients     @relation(fields: [clientId], references: [id])
-  user               SalesRep    @relation(fields: [userId], references: [id])
-  orderItems         OrderItem[]
-  reports            Report[]    @relation("MyOrderToReport")
+  id                   Int         @id @default(autoincrement())
+  totalAmount          Float
+  amountPaid           Decimal     @db.Decimal(11, 2)
+  balance              Decimal     @db.Decimal(11, 2)
+  comment              String
+  customerType         String
+  customerId           String
+  customerName         String
+  orderDate            DateTime    @default(now())
+  riderId              Int?
+  riderName            String?
+  status               Int         @default(0)
+  approvedTime         String?
+  dispatchTime         String?
+  deliveryLocation     String?
+  complete_latitude    String?
+  complete_longitude   String?
+  complete_address     String?
+  pickupTime           String?
+  deliveryTime         String?
+  cancel_reason        String?
+  recepient            String?
+  userId               Int
+  clientId             Int
+  countryId            Int
+  regionId             Int
+  createdAt            DateTime    @default(now())
+  updatedAt            DateTime    @updatedAt
+  approved_by          String      @db.VarChar(200)
+  approved_by_name     String      @db.VarChar(200)
+  storeId              Int?
+  retail_manager       Int
+  key_channel_manager  Int
+  distribution_manager Int
+  imageUrl             String?
+  client               Clients     @relation(fields: [clientId], references: [id])
+  user                 SalesRep    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  orderItems           OrderItem[]
+  reports              Report[]    @relation("MyOrderToReport")
 
   @@index([userId])
   @@index([clientId])
@@ -470,7 +473,7 @@ model JourneyPlan {
   routeId            Int?
   client             Clients   @relation(fields: [clientId], references: [id])
   route              routes?   @relation(fields: [routeId], references: [id])
-  user               SalesRep? @relation(fields: [userId], references: [id])
+  user               SalesRep? @relation(fields: [userId], references: [id], onDelete: Cascade)
   reports            Report[]
 
   @@index([clientId])
@@ -500,7 +503,7 @@ model Report {
   productsSample   ProductsSample?
   client           Clients           @relation(fields: [clientId], references: [id])
   journeyPlan      JourneyPlan?      @relation(fields: [journeyPlanId], references: [id])
-  user             SalesRep          @relation(fields: [userId], references: [id])
+  user             SalesRep          @relation(fields: [userId], references: [id], onDelete: Cascade)
   VisibilityReport VisibilityReport?
   MyOrder          MyOrder[]         @relation("MyOrderToReport")
 
@@ -519,7 +522,7 @@ model FeedbackReport {
   userId    Int
   client    Clients  @relation(fields: [clientId], references: [id])
   Report    Report   @relation(fields: [reportId], references: [id], onDelete: Cascade)
-  user      SalesRep @relation(fields: [userId], references: [id])
+  user      SalesRep @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([clientId])
@@ -538,7 +541,7 @@ model ProductReport {
   productId   Int?
   client      Clients  @relation(fields: [clientId], references: [id])
   Report      Report   @relation(fields: [reportId], references: [id], onDelete: Cascade)
-  user        SalesRep @relation(fields: [userId], references: [id])
+  user        SalesRep @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([clientId])
@@ -555,7 +558,7 @@ model VisibilityReport {
   userId    Int
   client    Clients  @relation(fields: [clientId], references: [id])
   Report    Report   @relation(fields: [reportId], references: [id], onDelete: Cascade)
-  user      SalesRep @relation(fields: [userId], references: [id])
+  user      SalesRep @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([clientId])
@@ -576,7 +579,7 @@ model ProductReturn {
   staff_name        String              @db.VarChar(100)
   client            Clients             @relation(fields: [clientId], references: [id])
   report            Report              @relation(fields: [reportId], references: [id])
-  user              SalesRep            @relation(fields: [userId], references: [id])
+  user              SalesRep            @relation(fields: [userId], references: [id], onDelete: Cascade)
   ProductReturnItem ProductReturnItem[]
 
   @@index([userId])
@@ -594,7 +597,7 @@ model ProductsSample {
   userId             Int
   client             Clients              @relation(fields: [clientId], references: [id])
   report             Report               @relation(fields: [reportId], references: [id])
-  user               SalesRep             @relation(fields: [userId], references: [id])
+  user               SalesRep             @relation(fields: [userId], references: [id], onDelete: Cascade)
   ProductsSampleItem ProductsSampleItem[]
 
   @@index([userId])
@@ -612,7 +615,7 @@ model ProductReturnItem {
   userId          Int
   client          Clients       @relation(fields: [clientId], references: [id])
   productReturn   ProductReturn @relation(fields: [productReturnId], references: [id])
-  user            SalesRep      @relation(fields: [userId], references: [id])
+  user            SalesRep      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([productReturnId])
   @@index([userId])
@@ -629,7 +632,7 @@ model ProductsSampleItem {
   userId           Int
   client           Clients        @relation(fields: [clientId], references: [id])
   productsSample   ProductsSample @relation(fields: [productsSampleId], references: [id])
-  user             SalesRep       @relation(fields: [userId], references: [id])
+  user             SalesRep       @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([productsSampleId])
   @@index([userId])
@@ -647,7 +650,7 @@ model Leave {
   status     String   @default("PENDING")
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
-  user       SalesRep @relation(fields: [userId], references: [id])
+  user       SalesRep @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId], map: "leaves_userId_fkey")
   @@map("leaves")
@@ -662,7 +665,7 @@ model UpliftSale {
   createdAt   DateTime         @default(now())
   updatedAt   DateTime         @updatedAt
   client      Clients          @relation(fields: [clientId], references: [id])
-  user        SalesRep         @relation(fields: [userId], references: [id])
+  user        SalesRep         @relation(fields: [userId], references: [id], onDelete: Cascade)
   items       UpliftSaleItem[]
 
   @@index([clientId], map: "UpliftSale_clientId_fkey")
@@ -743,7 +746,7 @@ model Task {
   salesRepId   Int
   assignedById Int?
   assignedBy   users?    @relation(fields: [assignedById], references: [id])
-  salesRep     SalesRep  @relation(fields: [salesRepId], references: [id])
+  salesRep     SalesRep  @relation(fields: [salesRepId], references: [id], onDelete: Cascade)
 
   @@index([assignedById])
   @@index([salesRepId], map: "tasks_salesRepId_fkey")
