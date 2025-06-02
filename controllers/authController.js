@@ -282,9 +282,32 @@ const refresh = async (req, res) => {
   }
 };
 
+
+const deleteAccount = async (req, res) => {
+  try {
+    const userId = req.user?.id || req.body.userId || req.params.id;
+    if (!userId) {
+      return res.status(400).json({ error: 'User ID is required' });
+    }
+
+    // Delete tokens for the user
+    await prisma.token.deleteMany({ where: { salesRepId: userId } });
+    // Delete manager record if exists
+    await prisma.Manager.deleteMany({ where: { userId } });
+    // Delete the user
+    await prisma.salesRep.delete({ where: { id: userId } });
+
+    res.json({ message: 'Account deleted successfully' });
+  } catch (error) {
+    console.error('Account deletion error:', error);
+    res.status(500).json({ error: 'Failed to delete account', details: error.message });
+  }
+};
+
 module.exports = { 
   register, 
   login, 
   logout,
-  refresh 
+  refresh,
+  delete: deleteAccount
 };
