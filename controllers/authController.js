@@ -290,20 +290,36 @@ const deleteAccount = async (req, res) => {
       return res.status(400).json({ error: 'User ID is required' });
     }
 
-    // Delete tokens for the user
+    // Manually delete all related records
+    await prisma.upliftSale.deleteMany({ where: { userId } });
+    await prisma.task.deleteMany({ where: { salesRepId: userId } });
     await prisma.token.deleteMany({ where: { salesRepId: userId } });
-    // Delete manager record if exists
-    await prisma.Manager.deleteMany({ where: { userId } });
-    // Delete the user
+    await prisma.manager.deleteMany({ where: { userId } });
+    await prisma.clientPayment.deleteMany({ where: { userId } });
+    await prisma.feedbackReport.deleteMany({ where: { userId } });
+    await prisma.journeyPlan.deleteMany({ where: { userId } });
+    await prisma.loginHistory.deleteMany({ where: { userId } });
+    await prisma.myOrder.deleteMany({ where: { userId } });
+    await prisma.productReport.deleteMany({ where: { userId } });
+    await prisma.productReturn.deleteMany({ where: { userId } });
+    await prisma.productReturnItem.deleteMany({ where: { userId } });
+    await prisma.productsSample.deleteMany({ where: { userId } });
+    await prisma.productsSampleItem.deleteMany({ where: { userId } });
+    await prisma.report.deleteMany({ where: { userId } });
+    await prisma.target.deleteMany({ where: { salesRepId: userId } });
+    await prisma.upliftSale.deleteMany({ where: { userId } });
+    await prisma.visibilityReport.deleteMany({ where: { userId } });
+    await prisma.leave.deleteMany({ where: { userId } });
+
+    // Finally, delete the user
     await prisma.salesRep.delete({ where: { id: userId } });
 
-    res.json({ message: 'Account deleted successfully' });
+    res.json({ message: 'Account and all related data deleted successfully' });
   } catch (error) {
     console.error('Account deletion error:', error);
     res.status(500).json({ error: 'Failed to delete account', details: error.message });
   }
 };
-
 module.exports = { 
   register, 
   login, 
