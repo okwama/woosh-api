@@ -711,7 +711,10 @@ const createOrder = asyncHandler(async (req, res) => {
               }
             },
             countryId: userCountryId,
-            regionId: userRegionId
+            regionId: userRegionId,
+            retail_manager: 0, // default value
+            key_channel_manager: 0, // default value
+            distribution_manager: 0 // default value
           }
         });
 
