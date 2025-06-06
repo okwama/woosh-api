@@ -1,6 +1,6 @@
 const { DateTime } = require('luxon');
 const prisma = require('../lib/prisma');
-
+const cron = require('node-cron');
 // Constants for shift times
 const SHIFT_START_HOUR = 9;
 const SHIFT_START_MINUTE = 0;
@@ -206,6 +206,62 @@ const recordLogin = async (req, res) => {
   }
 };
 
+
+
+// Schedule auto-logout at 6 PM every day
+// Using node-cron to schedule tasks
+// Ensure you have node-cron installed: npm install node-cron
+// Also ensure you have luxon installed: npm install luxon
+// Ensure you have prisma client set up correctly in your project
+// const cron = require('node-cron');
+
+// Simple auto-logout at 6 PM every day
+const scheduleAutoLogout = () => {
+  // Runs at 6:00 PM every day in Africa/Nairobi timezone
+  cron.schedule('30 18 * * *', async () => {
+    console.log('[AUTO-LOGOUT] Triggering at 6 PM');
+    
+    try {
+      // Find all active sessions
+      const activeSessions = await prisma.loginHistory.findMany({
+        where: {
+          logoutAt: null
+        }
+      });
+
+      console.log(`[AUTO-LOGOUT] Found ${activeSessions.length} active sessions`);
+
+      // Auto-logout each user
+      for (const session of activeSessions) {
+        const mockReq = {
+          body: { userId: session.userId.toString() },
+          headers: { timezone: session.timezone || 'Africa/Nairobi' }
+        };
+        
+        const mockRes = {
+          status: (code) => ({
+            json: (data) => console.log(`[AUTO-LOGOUT] User ${session.userId}:`, data)
+          })
+        };
+
+        // Call your existing recordLogout function
+        await recordLogout(mockReq, mockRes);
+      }
+
+    } catch (error) {
+      console.error('[AUTO-LOGOUT] Failed:', error);
+    }
+  }, {
+    timezone: 'Africa/Nairobi'
+  });
+};
+
+// Initialize when your app starts
+scheduleAutoLogout();
+console.log('[SCHEDULER] Auto-logout set for 6 PM daily');
+
+
+
 // Record user logout
 const recordLogout = async (req, res) => {
   console.log('[DEBUG] Starting recordLogout', {
@@ -223,7 +279,7 @@ const recordLogout = async (req, res) => {
         userId: parseInt(userId),
         logoutAt: null
       },
-      include: { user: true }
+      /*include: { user: true }*/
     });
 
     if (!activeSession) {
