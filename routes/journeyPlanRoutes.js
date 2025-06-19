@@ -1,6 +1,6 @@
 const express = require('express');
 const { authenticateToken } = require('../middleware/authMiddleware');
-const { createJourneyPlan, updateJourneyPlan, getJourneyPlans } = require('../controllers/journeyPlanController');
+const { createJourneyPlan, updateJourneyPlan, getJourneyPlans, deleteJourneyPlan } = require('../controllers/journeyPlanController');
 
 const router = express.Router();
 
@@ -15,5 +15,8 @@ router.put('/:journeyId', updateJourneyPlan);
 
 // Get all journey plans for the authenticated user
 router.get('/', getJourneyPlans);
+
+// Delete a journey plan with status 0
+router.delete('/:journeyId', deleteJourneyPlan);
 
 module.exports = router;

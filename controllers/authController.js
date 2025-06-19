@@ -135,11 +135,7 @@ const login = async (req, res) => {
 
     // Check if user exists
     const salesRep = await prisma.salesRep.findFirst({
-      where: { phoneNumber },
-      // include: {
-      //   Manager: true,
-      //   countryRelation: true
-      // }
+      where: { phoneNumber }
     });
 
     console.log('SalesRep found:', salesRep ? 'Yes' : 'No');
@@ -148,6 +144,14 @@ const login = async (req, res) => {
       return res.status(401).json({
         success: false,
         error: 'Invalid phone number or password'
+      });
+    }
+
+    // Check if account is deactivated
+    if (salesRep.status === 1) {
+      return res.status(403).json({
+        success: false,
+        error: 'Account deactivated. Please contact administrator.'
       });
     }
 

@@ -2,6 +2,7 @@ const prisma = require('../lib/prisma');
 const multer = require('multer');
 const path = require('path');
 const ImageKit = require('imagekit');
+const { uploadFile } = require('../lib/uploadService');
 
 // Configure ImageKit
 const imagekit = new ImageKit({
@@ -13,7 +14,7 @@ const imagekit = new ImageKit({
 // Configure multer for memory storage
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 10 * 1024 * 1024 }, // 5MB limit
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit
   fileFilter: (req, file, cb) => {
     const allowedTypes = ['.jpg', '.jpeg', '.png', '.pdf'];
     const ext = path.extname(file.originalname).toLowerCase();
@@ -29,40 +30,28 @@ const upload = multer({
 // Get all outlets
 const getOutlets = async (req, res) => {
   try {
-    const { route_id, page = 1, limit = 2000 } = req.query;
+    const { route_id, page = 1, limit = 2000, created_after } = req.query;
     const skip = (parseInt(page) - 1) * parseInt(limit);
 
     // Build the where clause
-    const where = {};
+    const where = {
+      countryId: req.user.countryId,  // Add countryId filter here
+      status: 0  // Only fetch outlets with status 0
+    };
     if (route_id) {
       where.route_id = parseInt(route_id);
+    }
+    if (created_after) {
+      where.created_at = {
+        gt: new Date(created_after)
+      };
     }
 
     // Get total count for pagination
     const total = await prisma.clients.count({ where });
 
-    // Fetch only required fields
-    // const outlets = await prisma.clients.findMany({
-    //   where,
-    //   select: {
-    //     id: true,
-    //     name: true,
-    //     balance: true,
-    //     address: true,
-    //     latitude: true,
-    //     longitude: true,
-    //   },
-    //   skip,
-    //   take: parseInt(limit),
-    //   orderBy: {
-    //     name: 'asc',
-    //   }
-    // });
     const outlets = await prisma.clients.findMany({
-      where: {
-        ...where, // Ensure your where conditions are properly indexed
-        // Consider adding date filters if applicable to reduce scanned rows
-      },
+      where,
       select: {
         id: true,
         name: true,
@@ -70,6 +59,7 @@ const getOutlets = async (req, res) => {
         address: true,
         latitude: true,
         longitude: true,
+        created_at: true,
         // Add any frequently used fields to avoid separate queries
       },
       skip: Math.max(0, skip), // Ensure skip is never negative
@@ -84,6 +74,7 @@ const getOutlets = async (req, res) => {
     const outletsWithDefaultBalance = outlets.map(outlet => ({
       ...outlet,
       balance: String(outlet.balance ?? "0"),
+      created_at: outlet.created_at?.toISOString() ?? null,
     }));
 
     res.json({
@@ -109,12 +100,12 @@ const createOutlet = async (req, res) => {
     longitude, 
     balance, 
     email, 
-    
     contact,
     region_id,
     region,
-    country,
-    client_type
+    client_type,
+    added_by
+
   } = req.body;
 
   // Get route_id from authenticated user
@@ -137,14 +128,14 @@ const createOutlet = async (req, res) => {
         location: req.body.location || "Unknown",
         latitude,
         longitude,
-        country: {
-          connect: { id: parseInt(country) } // Assuming country is the ID
-        },
+        countryId: req.user.countryId, // Get countryId from logged-in user
         region_id: parseInt(region_id),
         region: region || "Unknown",
-        route_id: route_id ? parseInt(route_id) : null, // Use authenticated user's route_id
+        route_id: route_id ? parseInt(route_id) : null,
         route_id_update: route_id ? parseInt(route_id) : null,
         route_name_update: req.user.route_name || "Unknown",
+        added_by: req.user.id,
+        created_at: new Date(),
       },
     });
     res.status(201).json(newOutlet);
@@ -153,6 +144,8 @@ const createOutlet = async (req, res) => {
     res.status(500).json({ error: 'Failed to create outlet' });
   }
 };
+
+
 // Update an outlet
 const updateOutlet = async (req, res) => {
   const { id } = req.params;
@@ -300,55 +293,53 @@ const getOutletLocation = async (req, res) => {
   }
 };
 
-// Add client payment with file upload (for reference only)
+// Add client payment
 const addClientPayment = async (req, res) => {
   upload(req, res, async (err) => {
     if (err) {
-      console.error('Upload error:', err);
       return res.status(400).json({ error: err.message });
     }
 
-    const clientId = parseInt(req.params.id);
-    const { amount, method, userId } = req.body;
-
-    if (!clientId || !amount || !userId) {
-      return res.status(400).json({ error: 'Client ID, amount and userId are required' });
-    }
-
     try {
-      let imageUrl = null;
-      if (req.file) {
-        // Upload file to ImageKit
-        const uniqueFilename = `${Date.now()}-${Math.round(Math.random() * 1E9)}${path.extname(req.file.originalname)}`;
-        const result = await imagekit.upload({
-          file: req.file.buffer,
-          fileName: uniqueFilename,
-          folder: 'whoosh/payments'
-        });
-        imageUrl = result.url;
+      const { clientId, amount, paymentDate, paymentType } = req.body;
+
+      if (!clientId || !amount || !paymentDate || !paymentType) {
+        return res.status(400).json({ error: 'Missing required fields' });
       }
 
-      // Create payment record for reference only
+      let imageUrl = null;
+      let thumbnailUrl = null;
+
+      if (req.file) {
+        try {
+          const result = await uploadFile(req.file, {
+            folder: 'whoosh/payments',
+            type: 'document',
+            generateThumbnail: true
+          });
+          imageUrl = result.main.url;
+          thumbnailUrl = result.thumbnail?.url;
+        } catch (error) {
+          return res.status(500).json({ error: 'Failed to upload payment document' });
+        }
+      }
+
       const payment = await prisma.clientPayment.create({
         data: {
-          clientId,
+          clientId: parseInt(clientId),
           amount: parseFloat(amount),
-          imageUrl,
-          method: method || '',
-          status: 'PENDING',
-          date: new Date(),
-          userId: parseInt(userId)
+          paymentDate: new Date(paymentDate),
+          paymentType,
+          documentUrl: imageUrl,
+          thumbnailUrl: thumbnailUrl,
+          addedBy: req.user.id
         }
       });
 
-      res.status(201).json({ 
-        success: true, 
-        data: payment,
-        message: 'Payment record created for reference. Balance will be updated after payment approval.'
-      });
+      res.status(201).json(payment);
     } catch (error) {
-      console.error('Error creating client payment:', error);
-      res.status(500).json({ error: 'Failed to create client payment' });
+      console.error('Error adding payment:', error);
+      res.status(500).json({ error: 'Failed to add payment' });
     }
   });
 };

@@ -2,16 +2,9 @@ const prisma = require('../lib/prisma');
 const asyncHandler = require('express-async-handler');
 const multer = require('multer');
 const path = require('path');
-const ImageKit = require('imagekit');
+const { uploadFile } = require('../lib/uploadService');
 const { Prisma } = require('@prisma/client');
 const { hasOldBalance } = require('./balanceController');
-
-// Configure ImageKit
-const imagekit = new ImageKit({
-  publicKey: process.env.IMAGEKIT_PUBLIC_KEY,
-  privateKey: process.env.IMAGEKIT_PRIVATE_KEY,
-  urlEndpoint: process.env.IMAGEKIT_URL_ENDPOINT
-});
 
 // Configure multer for memory storage
 const upload = multer({
@@ -28,25 +21,6 @@ const upload = multer({
     }
   }
 }).single('image');
-
-// Helper function to upload buffer to ImageKit
-const uploadToImageKit = async (fileBuffer, fileName, folder) => {
-  try {
-    console.log('[Order Debug] Uploading file to ImageKit:', fileName);
-    
-    const result = await imagekit.upload({
-      file: fileBuffer,
-      fileName,
-      folder
-    });
-    
-    console.log('[Order Debug] File uploaded successfully to ImageKit:', result.url);
-    return result;
-  } catch (error) {
-    console.error('[Order Debug] ImageKit upload error:', error);
-    throw error;
-  }
-};
 
 // Add the balance check function
 const checkClientBalance = async (clientId) => {
@@ -123,19 +97,23 @@ const createOrder = asyncHandler(async (req, res) => {
 
       // Handle image upload first
       let imageUrl = null;
+      let thumbnailUrl = null;
+
       if (req.file) {
         try {
-          const folder = 'orders';
-          const uniqueFilename = `${Date.now()}-${Math.round(Math.random() * 1E9)}${path.extname(req.file.originalname)}`;
-          
-          const result = await uploadToImageKit(req.file.buffer, uniqueFilename, folder);
-          imageUrl = result.url;
-          console.log('[Order Debug] ImageKit upload successful:', {
+          const result = await uploadFile(req.file, {
+            folder: 'whoosh/orders',
+            type: 'document',
+            generateThumbnail: true
+          });
+          imageUrl = result.main.url;
+          thumbnailUrl = result.thumbnail?.url;
+          console.log('[Order Debug] File upload successful:', {
             imageUrl,
-            result
+            thumbnailUrl
           });
         } catch (error) {
-          console.error('[Order Debug] ImageKit upload failed:', error);
+          console.error('[Order Debug] File upload failed:', error);
           return res.status(500).json({
             success: false,
             error: 'Failed to upload order image'

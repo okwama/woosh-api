@@ -2,19 +2,16 @@ const express = require('express');
 const router = express.Router();
 const targetController = require('../controllers/targetController');
 
+// Create test data
+router.post('/test-data', targetController.createTestData);
+
 // Get all targets
 router.get('/', targetController.getAllTargets);
 
-// Get a target by ID
-router.get('/:id', targetController.getTargetById);
+// Get daily visit targets for a specific user
+router.get('/daily-visits/:userId', targetController.getDailyVisitTargets);
 
-// Create a new target
-router.post('/', targetController.createTarget);
-
-// Update a target
-router.put('/:id', targetController.updateTarget);
-
-// Delete a target
-router.delete('/:id', targetController.deleteTarget);
+// Get monthly visit reports for a specific user
+router.get('/monthly-visits/:userId', targetController.getMonthlyVisitReports);
 
 module.exports = router;

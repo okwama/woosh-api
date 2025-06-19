@@ -1,14 +1,7 @@
 const prisma = require('../lib/prisma');
 const multer = require('multer');
 const path = require('path');
-const ImageKit = require('imagekit');
-
-// Configure ImageKit
-const imagekit = new ImageKit({
-  publicKey: process.env.IMAGEKIT_PUBLIC_KEY,
-  privateKey: process.env.IMAGEKIT_PRIVATE_KEY,
-  urlEndpoint: process.env.IMAGEKIT_URL_ENDPOINT
-});
+const { uploadFile } = require('../lib/uploadService');
 
 // Configure multer for memory storage
 const storage = multer.memoryStorage();
@@ -28,26 +21,6 @@ const upload = multer({
     fileSize: 5 * 1024 * 1024 // 5MB limit
   }
 }).single('attachment');
-
-// Helper function to upload file to ImageKit
-const uploadToImageKit = async (fileBuffer, fileName, folder) => {
-  try {
-    console.log('Uploading file to ImageKit:', fileName);
-    
-    // Upload to ImageKit - using the method that worked in our test
-    const result = await imagekit.upload({
-      file: fileBuffer,
-      fileName: fileName,
-      folder: folder
-    });
-    
-    console.log('File uploaded successfully to ImageKit:', result.url);
-    return result;
-  } catch (error) {
-    console.error('ImageKit upload error:', error);
-    throw error;
-  }
-};
 
 // Submit leave application
 exports.submitLeave = async (req, res) => {
@@ -81,13 +54,16 @@ exports.submitLeave = async (req, res) => {
 
       if (req.file) {
         try {
-          console.log('Uploading file to ImageKit:', req.file.originalname, req.file.mimetype, req.file.size);
-          const uniqueFilename = `${Date.now()}-${Math.round(Math.random() * 1E9)}${path.extname(req.file.originalname)}`;
-          const result = await uploadToImageKit(req.file.buffer, uniqueFilename, 'whoosh/leave-documents');
-          attachmentUrl = result.url;
+          console.log('Uploading file:', req.file.originalname, req.file.mimetype, req.file.size);
+          const result = await uploadFile(req.file, {
+            folder: 'whoosh/leave-documents',
+            type: 'document',
+            useCache: false
+          });
+          attachmentUrl = result.main.url;
           console.log('File uploaded successfully:', attachmentUrl);
         } catch (uploadError) {
-          console.error('Error uploading to ImageKit:', uploadError);
+          console.error('Error uploading to cloud storage:', uploadError);
           return res.status(500).json({ error: `Failed to upload document: ${uploadError.message}` });
         }
       }

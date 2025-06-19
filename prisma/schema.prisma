@@ -18,7 +18,6 @@ model User {
 model SalesRep {
   id                   Int                  @id @default(autoincrement())
   name                 String
-  managerId            Int?
   email                String               @unique
   phoneNumber          String               @unique
   password             String
@@ -41,6 +40,7 @@ model SalesRep {
   key_channel_manager  Int
   distribution_manager Int
   photoUrl             String?              @default("")
+  managerId            Int?
   ClientPayment        ClientPayment[]
   feedbackReports      FeedbackReport[]
   journeyPlans         JourneyPlan[]
@@ -315,6 +315,8 @@ model Clients {
   status             Int                  @default(0)
   client_type        Int?
   countryId          Int
+  added_by           Int?
+  created_at         DateTime?            @default(now())
   ClientPayment      ClientPayment[]
   country            Country              @relation(fields: [countryId], references: [id])
   feedbackReports    FeedbackReport[]
@@ -489,6 +491,7 @@ model NoticeBoard {
   content   String
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now()) @updatedAt
+  countryId Int?
 }
 
 model Report {
@@ -716,23 +719,24 @@ model SupplierHistory {
 }
 
 model users {
-  id           Int       @id @default(autoincrement())
-  username     String    @db.VarChar(100)
+  id           Int        @id @default(autoincrement())
+  username     String     @db.VarChar(100)
   department   Int
-  password     String    @db.VarChar(100)
-  account_code String    @db.VarChar(32)
-  firstname    String?   @db.VarChar(255)
-  lastname     String?   @db.VarChar(255)
-  facebook_id  String?   @db.VarChar(255)
-  address      String?   @db.VarChar(255)
-  email        String?   @db.VarChar(255)
-  phone        String    @db.VarChar(32)
-  gender       String    @db.VarChar(32)
-  country      String    @db.VarChar(99)
-  image        String    @db.VarChar(999)
-  created      DateTime? @db.DateTime(0)
-  modified     DateTime? @db.DateTime(0)
-  status       Boolean?  @default(true)
+  password     String     @db.VarChar(100)
+  account_code String     @db.VarChar(32)
+  firstname    String?    @db.VarChar(255)
+  lastname     String?    @db.VarChar(255)
+  facebook_id  String?    @db.VarChar(255)
+  address      String?    @db.VarChar(255)
+  email        String?    @db.VarChar(255)
+  phone        String     @db.VarChar(32)
+  gender       String     @db.VarChar(32)
+  country      String     @db.VarChar(99)
+  image        String     @db.VarChar(999)
+  created      DateTime?  @db.DateTime(0)
+  modified     DateTime?  @db.DateTime(0)
+  status       Boolean?   @default(true)
+  Expenses     Expenses[]
   Task         Task[]
 }
 
@@ -852,6 +856,7 @@ model account_update {
   update_date      String  @db.VarChar(100)
   staff_id         Int
   staff_name       String  @db.VarChar(100)
+  notes            String  @db.Text
 }
 
 model accounts {
@@ -864,12 +869,14 @@ model accounts {
 
 model PurchaseOrder {
   id         Int      @id @default(autoincrement())
+  payment_id Int
   vendor_id  Int
   order_id   Int
   order_date DateTime @db.DateTime(0)
   admin_id   Int
   notes      String   @db.Text
   total      Decimal  @db.Decimal(11, 2)
+  paid       Decimal  @db.Decimal(11, 2)
   status     String   @db.VarChar(30)
 }
 
@@ -1773,6 +1780,82 @@ model visibility_reports_g {
   @@index([clientId])
   @@index([reportId])
   @@index([userId])
+}
+
+model AccountTypes {
+  id               Int      @id @default(autoincrement())
+  account_type     String   @db.VarChar(100)
+  account_category Int
+  created_at       DateTime @default(now()) @db.Timestamp(0)
+}
+
+model Expenses {
+  id              Int        @id @default(autoincrement())
+  expense_type_id Int
+  reference       String     @db.VarChar(50)
+  amount          Decimal    @db.Decimal(10, 2)
+  paid            Decimal    @db.Decimal(11, 2)
+  balance         Decimal    @db.Decimal(11, 2)
+  expense_date    DateTime   @db.Date
+  posted_by       Int
+  notes           String?    @db.Text
+  posted_at       DateTime   @default(now()) @db.Timestamp(0)
+  MyAccounts      MyAccounts @relation(fields: [expense_type_id], references: [id], onUpdate: Restrict, map: "Expenses_ibfk_1")
+  users           users      @relation(fields: [posted_by], references: [id], onUpdate: Restrict, map: "Expenses_ibfk_2")
+
+  @@index([expense_type_id], map: "expense_type_id")
+  @@index([posted_by], map: "posted_by")
+}
+
+model MyAccounts {
+  id             Int        @id @default(autoincrement())
+  account_name   String     @db.VarChar(100)
+  account_number String     @db.VarChar(20)
+  account_type   Int
+  description    String?    @db.Text
+  created_at     DateTime   @default(now()) @db.Timestamp(0)
+  Expenses       Expenses[]
+}
+
+model Pay {
+  id           Int     @id @default(autoincrement())
+  expense_id   Int
+  account_id   Int
+  amount       Decimal @db.Decimal(11, 2)
+  reference    String  @db.Text
+  payment_date String  @db.VarChar(100)
+  posted_by    Int
+  notes        String  @db.Text
+}
+
+model Payments {
+  id           Int     @id @default(autoincrement())
+  amount       Decimal @db.Decimal(11, 2)
+  payment_date String  @db.VarChar(100)
+  method       String  @db.VarChar(100)
+  notes        String  @db.Text
+  admin_id     Int
+  status       String  @db.VarChar(50)
+}
+
+model account_category {
+  id   Int    @id @default(autoincrement())
+  name String @db.VarChar(20)
+}
+
+model payments {
+  id             Int      @id @default(autoincrement())
+  po_id          Int
+  vendor_id      Int
+  amount         Decimal  @db.Decimal(10, 2)
+  payment_method String   @db.VarChar(50)
+  reference      String?  @db.VarChar(100)
+  payment_date   DateTime @db.Date
+  notes          String?  @db.Text
+  created_by     Int
+  created_at     DateTime @db.DateTime(0)
+
+  @@index([po_id], map: "po_id")
 }
 
 enum ReportType {

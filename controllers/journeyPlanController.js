@@ -1,4 +1,22 @@
 const prisma = require('../lib/prisma');
+const multer = require('multer');
+const path = require('path');
+const { uploadFile } = require('../lib/uploadService');
+
+// Configure multer for memory storage
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
+  fileFilter: (req, file, cb) => {
+    const allowedTypes = ['.jpg', '.jpeg', '.png'];
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (allowedTypes.includes(ext)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Invalid file type. Only JPG and PNG files are allowed.'));
+    }
+  }
+}).single('image');
 
 // Ensure salesRepId is not null
 const getSalesRepId = (req) => {
@@ -164,107 +182,178 @@ const getJourneyPlans = async (req, res) => {
 
 // Update a journey plan
 const updateJourneyPlan = async (req, res) => {
-  const { journeyId } = req.params;
-  const { 
-    clientId, 
-    status, 
-    checkInTime, 
-    latitude, 
-    longitude, 
-    imageUrl, 
-    notes,
-    checkoutTime,
-    checkoutLatitude,
-    checkoutLongitude,
-    showUpdateLocation 
-  } = req.body;
-
-  // Log request details for debugging
-  console.log('[CHECKOUT LOG] Updating journey plan:', { 
-    journeyId, clientId, status, checkInTime, 
-    latitude, longitude, imageUrl, notes,
-    checkoutTime, checkoutLatitude, checkoutLongitude,
-    showUpdateLocation
-  });
-
-  try {
-    // Validate required params
-    if (!journeyId) {
-      return res.status(400).json({ error: 'Missing required field: journeyId' });
+  // Handle both multipart form data and regular JSON
+  upload(req, res, async (err) => {
+    if (err instanceof multer.MulterError) {
+      return res.status(400).json({ error: 'File upload error: ' + err.message });
+    } else if (err) {
+      return res.status(400).json({ error: err.message });
     }
 
-    // Get the authenticated sales rep
-    const salesRepId = req.user.id;
+    const { journeyId } = req.params;
+    const { 
+      clientId, 
+      status, 
+      checkInTime, 
+      latitude, 
+      longitude, 
+      imageUrl: providedImageUrl, 
+      notes,
+      checkoutTime,
+      checkoutLatitude,
+      checkoutLongitude,
+      showUpdateLocation 
+    } = req.body;
 
-    // Status mapping
-    const STATUS_MAP = {
-      'pending': 0,
-      'checked_in': 1,
-      'in_progress': 2,
-      'completed': 3,
-      'cancelled': 4
-    };
+    // Log request details for debugging
+    console.log('[CHECKOUT LOG] Updating journey plan:', { 
+      journeyId, clientId, status, checkInTime, 
+      latitude, longitude, notes,
+      checkoutTime, checkoutLatitude, checkoutLongitude,
+      showUpdateLocation,
+      hasFile: !!req.file,
+      providedImageUrl
+    });
 
-    const REVERSE_STATUS_MAP = {
-      0: 'pending',
-      1: 'checked_in',
-      2: 'in_progress',
-      3: 'completed',
-      4: 'cancelled'
-    };
+    try {
+      // Validate required params
+      if (!journeyId) {
+        return res.status(400).json({ error: 'Missing required field: journeyId' });
+      }
 
-    // Check if the journey plan exists and belongs to the sales rep
-    const existingJourneyPlan = await prisma.journeyPlan.findUnique({
+      // Get the authenticated sales rep
+      const salesRepId = req.user.id;
+
+      // Status mapping
+      const STATUS_MAP = {
+        'pending': 0,
+        'checked_in': 1,
+        'in_progress': 2,
+        'completed': 3,
+        'cancelled': 4
+      };
+
+      const REVERSE_STATUS_MAP = {
+        0: 'pending',
+        1: 'checked_in',
+        2: 'in_progress',
+        3: 'completed',
+        4: 'cancelled'
+      };
+
+      // Check if the journey plan exists and belongs to the sales rep
+      const existingJourneyPlan = await prisma.journeyPlan.findUnique({
+        where: { id: parseInt(journeyId) },
+      });
+
+      if (!existingJourneyPlan) {
+        return res.status(404).json({ error: 'Journey plan not found' });
+      }
+
+      if (existingJourneyPlan.userId !== salesRepId) {
+        return res.status(403).json({ error: 'Unauthorized to update this journey plan' });
+      }
+
+      // Add validation for status transitions if needed
+      const currentStatus = REVERSE_STATUS_MAP[existingJourneyPlan.status];
+      
+      // Log status change if applicable
+      if (status !== undefined && status !== existingJourneyPlan.status) {
+        console.log(`Status change: ${currentStatus} -> ${REVERSE_STATUS_MAP[status]}`);
+      }
+
+      // Handle image upload if present
+      let finalImageUrl = undefined;
+      if (req.file) {
+        try {
+          console.log('Processing checkin image:', req.file.originalname, req.file.mimetype, req.file.size);
+          const result = await uploadFile(req.file, {
+            folder: 'whoosh/checkins',
+            type: 'image',
+            generateThumbnail: true
+          });
+          finalImageUrl = result.main.url;
+          console.log('Checkin image uploaded successfully:', finalImageUrl);
+        } catch (uploadError) {
+          console.error('Error uploading checkin image:', uploadError);
+          return res.status(500).json({ error: 'Failed to upload checkin image' });
+        }
+      } else if (providedImageUrl) {
+        // If no file but imageUrl provided, use that
+        finalImageUrl = providedImageUrl;
+      }
+
+      // Update the journey plan
+      const updatedJourneyPlan = await prisma.journeyPlan.update({
+        where: { id: parseInt(journeyId) },
+        data: {
+          status: status !== undefined ? STATUS_MAP[status] : existingJourneyPlan.status,
+          checkInTime: checkInTime ? new Date(checkInTime) : undefined,
+          latitude: latitude !== undefined ? parseFloat(latitude) : undefined,
+          longitude: longitude !== undefined ? parseFloat(longitude) : undefined,
+          imageUrl: finalImageUrl,
+          notes: notes,
+          checkoutTime: checkoutTime ? new Date(checkoutTime) : undefined,
+          checkoutLatitude: checkoutLatitude !== undefined ? parseFloat(checkoutLatitude) : undefined,
+          checkoutLongitude: checkoutLongitude !== undefined ? parseFloat(checkoutLongitude) : undefined,
+          showUpdateLocation: showUpdateLocation !== undefined ? Boolean(showUpdateLocation) : undefined,
+          client: clientId ? {
+            connect: { id: parseInt(clientId) }
+          } : undefined
+        },
+        include: {
+          client: true,
+        },
+      });
+
+      console.log('Journey plan updated successfully:', {
+        id: updatedJourneyPlan.id,
+        status: REVERSE_STATUS_MAP[updatedJourneyPlan.status],
+        imageUrl: updatedJourneyPlan.imageUrl
+      });
+
+      res.status(200).json(updatedJourneyPlan);
+    } catch (error) {
+      console.error('Error updating journey plan:', error);
+      res.status(500).json({ 
+        error: 'Failed to update journey plan',
+        details: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
+    }
+  });
+};
+
+// Delete a journey plan with status 0
+const deleteJourneyPlan = async (req, res) => {
+  const { journeyId } = req.params;
+
+  try {
+    // Check if the journey plan exists and has status 0
+    const journeyPlan = await prisma.journeyPlan.findUnique({
       where: { id: parseInt(journeyId) },
     });
 
-    if (!existingJourneyPlan) {
+    if (!journeyPlan) {
       return res.status(404).json({ error: 'Journey plan not found' });
     }
 
-    if (existingJourneyPlan.userId !== salesRepId) {
-      return res.status(403).json({ error: 'Unauthorized to update this journey plan' });
+    if (journeyPlan.status !== 0) {
+      return res.status(400).json({ error: 'Only pending journey plans (status 0) can be deleted' });
     }
 
-    // Add validation for status transitions if needed
-    const currentStatus = REVERSE_STATUS_MAP[existingJourneyPlan.status];
-    
-    // Log status change if applicable
-    if (status !== undefined && status !== existingJourneyPlan.status) {
-      console.log(`Status change: ${currentStatus} -> ${REVERSE_STATUS_MAP[status]}`);
-    }
-
-    // Update the journey plan
-    const updatedJourneyPlan = await prisma.journeyPlan.update({
+    // Delete the journey plan
+    await prisma.journeyPlan.delete({
       where: { id: parseInt(journeyId) },
-      data: {
-        status: status !== undefined ? STATUS_MAP[status] : existingJourneyPlan.status,
-        checkInTime: checkInTime ? new Date(checkInTime) : undefined,
-        latitude: latitude !== undefined ? parseFloat(latitude) : undefined,
-        longitude: longitude !== undefined ? parseFloat(longitude) : undefined,
-        imageUrl: imageUrl,
-        notes: notes,
-        checkoutTime: checkoutTime ? new Date(checkoutTime) : undefined,
-        checkoutLatitude: checkoutLatitude !== undefined ? parseFloat(checkoutLatitude) : undefined,
-        checkoutLongitude: checkoutLongitude !== undefined ? parseFloat(checkoutLongitude) : undefined,
-        showUpdateLocation: showUpdateLocation !== undefined ? Boolean(showUpdateLocation) : undefined,
-        client: clientId ? {
-          connect: { id: parseInt(clientId) }
-        } : undefined
-      },
-      include: {
-        client: true,
-      },
     });
 
-    res.status(200).json(updatedJourneyPlan);
+    res.status(200).json({ message: 'Journey plan deleted successfully' });
   } catch (error) {
-    console.error('Error updating journey plan:', error);
+    console.error('Error deleting journey plan:', error);
     res.status(500).json({ 
-      error: 'Failed to update journey plan',
+      error: 'Failed to delete journey plan',
       details: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 };
 
-module.exports = { createJourneyPlan, getJourneyPlans, updateJourneyPlan };
+module.exports = { createJourneyPlan, getJourneyPlans, updateJourneyPlan, deleteJourneyPlan };

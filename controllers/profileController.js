@@ -1,14 +1,6 @@
 const prisma = require('../lib/prisma');
-const ImageKit = require('imagekit');
-const multer = require('multer');
 const bcrypt = require('bcrypt');
-
-// Configure ImageKit
-const imagekit = new ImageKit({
-  publicKey: process.env.IMAGEKIT_PUBLIC_KEY,
-  privateKey: process.env.IMAGEKIT_PRIVATE_KEY,
-  urlEndpoint: process.env.IMAGEKIT_URL_ENDPOINT
-});
+const { uploadFile } = require('../lib/uploadService');
 
 const updateProfilePhoto = async (req, res) => {
   try {
@@ -18,17 +10,19 @@ const updateProfilePhoto = async (req, res) => {
       return res.status(400).json({ message: 'No file uploaded' });
     }
 
-    // Upload file to ImageKit
-    const result = await imagekit.upload({
-      file: req.file.buffer,
-      fileName: `profile-${salesRepId}-${Date.now()}`,
-      folder: '/whoosh/profile_photos',
+    // Upload file using optimized service
+    const result = await uploadFile(req.file, {
+      folder: 'whoosh/profile_photos',
+      type: 'profile',
+      generateThumbnail: true
     });
 
     // Update user's photoUrl in database
     const updatedUser = await prisma.salesRep.update({
       where: { id: salesRepId },
-      data: { photoUrl: result.url },
+      data: { 
+        photoUrl: result.main.url
+      },
       select: {
         id: true,
         name: true,

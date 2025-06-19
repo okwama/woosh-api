@@ -11,94 +11,116 @@ const authenticateToken = async (req, res, next) => {
       return res.status(401).json({ error: 'Access token required' });
     }
 
-    // Check if token is blacklisted
-    const blacklistedToken = await prisma.token.findFirst({
-      where: {
-        token: token,
-        blacklisted: true
+    // Verify the token first
+    let decoded;
+    try {
+      decoded = jwt.verify(token, process.env.JWT_SECRET);
+    } catch (jwtError) {
+      if (jwtError.name === 'TokenExpiredError') {
+        return res.status(401).json({ 
+          error: 'Session expired. Please log in again.',
+          code: 'TOKEN_EXPIRED'
+        });
       }
-    });
-
-    if (blacklistedToken) {
-      // Clear any existing tokens from the client
-      res.setHeader('Clear-Site-Data', '"cache", "cookies", "storage"');
-      return res.status(401).json({ 
-        error: 'Session expired. Please log in again.',
-        code: 'TOKEN_BLACKLISTED'
-      });
+      return res.status(401).json({ error: 'Invalid token' });
     }
 
-    // Verify the token
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-
-    // Check if token exists in database and is not expired
-    const tokenRecord = await prisma.token.findFirst({
-      where: {
-        token: token,
-        salesRepId: decoded.userId,
-        expiresAt: {
-          gt: new Date()
-        }
-      }
-    });
-
-    if (!tokenRecord) {
-      // Clear any existing tokens from the client
-      res.setHeader('Clear-Site-Data', '"cache", "cookies", "storage"');
-      return res.status(401).json({ 
-        error: 'Session expired. Please log in again.',
-        code: 'TOKEN_EXPIRED'
-      });
-    }
-
-    // Check if token needs rotation (every 4 hours)
-    const tokenAge = Date.now() - tokenRecord.createdAt.getTime();
-    const fourHours = 4 * 60 * 60 * 1000;
+    // Try to check token in database, but don't fail if DB is unavailable
+    let tokenRecord = null;
+    let shouldRefresh = false;
     
-    if (tokenAge > fourHours) {
-      // Generate new token
-      const newToken = jwt.sign(
-        { userId: decoded.userId, role: decoded.role },
-        process.env.JWT_SECRET,
-        { expiresIn: '9h' }
-      );
-
-      // Store new token
-      await prisma.token.create({
-        data: {
-          token: newToken,
+    try {
+      // Check if token exists in database and is not expired
+      tokenRecord = await prisma.token.findFirst({
+        where: {
+          token: token,
           salesRepId: decoded.userId,
-          expiresAt: new Date(Date.now() + 9 * 60 * 60 * 1000)
+          expiresAt: {
+            gt: new Date()
+          }
         }
       });
 
-      // Blacklist old token
-      await prisma.token.update({
-        where: { id: tokenRecord.id },
-        data: { blacklisted: true }
-      });
+      // Check if token needs rotation (every 4 hours)
+      if (tokenRecord) {
+        const tokenAge = Date.now() - tokenRecord.createdAt.getTime();
+        const fourHours = 4 * 60 * 60 * 1000;
+        shouldRefresh = tokenAge > fourHours;
+      }
+    } catch (dbError) {
+      console.warn('Database connection issue during token validation:', dbError.message);
+      // Continue with JWT-only validation if DB is unavailable
+      shouldRefresh = false;
+    }
 
-      // Set new token in response header
-      res.setHeader('X-New-Token', newToken);
+    // Generate new token if needed
+    if (shouldRefresh && tokenRecord) {
+      try {
+        const newToken = jwt.sign(
+          { userId: decoded.userId, role: decoded.role },
+          process.env.JWT_SECRET,
+          { expiresIn: '9h' }
+        );
+
+        // Store new token
+        await prisma.token.create({
+          data: {
+            token: newToken,
+            salesRepId: decoded.userId,
+            expiresAt: new Date(Date.now() + 9 * 60 * 60 * 1000)
+          }
+        });
+
+        // Update old token to expired instead of blacklisting
+        await prisma.token.update({
+          where: { id: tokenRecord.id },
+          data: { 
+            expiresAt: new Date() // Set to current time to expire it
+          }
+        });
+
+        // Set new token in response header
+        res.setHeader('X-New-Token', newToken);
+      } catch (refreshError) {
+        console.warn('Token refresh failed:', refreshError.message);
+        // Continue with existing token if refresh fails
+      }
     }
 
     // Get user details
-    const user = await prisma.salesRep.findUnique({
-      where: { id: decoded.userId },
-      include: {
-        Manager: true
-      }
-    });
+    let user;
+    try {
+      user = await prisma.salesRep.findUnique({
+        where: { id: decoded.userId },
+        include: {
+          Manager: true
+        }
+      });
+    } catch (userError) {
+      console.warn('Failed to fetch user details:', userError.message);
+      // If we can't fetch user details, still allow the request
+      // but set minimal user info from JWT
+      user = {
+        id: decoded.userId,
+        role: decoded.role
+      };
+    }
 
     if (!user) {
       return res.status(401).json({ error: 'User not found' });
     }
 
-    // Update last used timestamp
-    await prisma.token.update({
-      where: { id: tokenRecord.id },
-      data: { lastUsedAt: new Date() }
-    });
+    // Update last used timestamp if we have a token record
+    if (tokenRecord) {
+      try {
+        await prisma.token.update({
+          where: { id: tokenRecord.id },
+          data: { lastUsedAt: new Date() }
+        });
+      } catch (updateError) {
+        console.warn('Failed to update token last used:', updateError.message);
+      }
+    }
 
     // Set security headers
     res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -111,17 +133,6 @@ const authenticateToken = async (req, res, next) => {
     next();
   } catch (error) {
     console.error('Authentication error:', error);
-    if (error.name === 'TokenExpiredError') {
-      // Clear any existing tokens from the client
-      res.setHeader('Clear-Site-Data', '"cache", "cookies", "storage"');
-      return res.status(401).json({ 
-        error: 'Session expired. Please log in again.',
-        code: 'TOKEN_EXPIRED'
-      });
-    }
-    if (error.name === 'JsonWebTokenError') {
-      return res.status(401).json({ error: 'Invalid token' });
-    }
     return res.status(500).json({ error: 'Internal server error' });
   }
 };
