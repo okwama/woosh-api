@@ -113,6 +113,7 @@ model Token {
   id          Int       @id @default(autoincrement())
   token       String
   salesRepId  Int
+  tokenType   String    @default("access") // "access" or "refresh"
   createdAt   DateTime  @default(now())
   expiresAt   DateTime
   blacklisted Boolean   @default(false)
@@ -122,6 +123,7 @@ model Token {
   @@index([salesRepId], map: "Token_userId_fkey")
   @@index([blacklisted])
   @@index([lastUsedAt])
+  @@index([tokenType])
 }
 
 model Regions {
@@ -719,24 +721,25 @@ model SupplierHistory {
 }
 
 model users {
-  id           Int        @id @default(autoincrement())
-  username     String     @db.VarChar(100)
+  id           Int         @id @default(autoincrement())
+  username     String      @db.VarChar(100)
   department   Int
-  password     String     @db.VarChar(100)
-  account_code String     @db.VarChar(32)
-  firstname    String?    @db.VarChar(255)
-  lastname     String?    @db.VarChar(255)
-  facebook_id  String?    @db.VarChar(255)
-  address      String?    @db.VarChar(255)
-  email        String?    @db.VarChar(255)
-  phone        String     @db.VarChar(32)
-  gender       String     @db.VarChar(32)
-  country      String     @db.VarChar(99)
-  image        String     @db.VarChar(999)
-  created      DateTime?  @db.DateTime(0)
-  modified     DateTime?  @db.DateTime(0)
-  status       Boolean?   @default(true)
+  password     String      @db.VarChar(100)
+  account_code String      @db.VarChar(32)
+  firstname    String?     @db.VarChar(255)
+  lastname     String?     @db.VarChar(255)
+  facebook_id  String?     @db.VarChar(255)
+  address      String?     @db.VarChar(255)
+  email        String?     @db.VarChar(255)
+  phone        String      @db.VarChar(32)
+  gender       String      @db.VarChar(32)
+  country      String      @db.VarChar(99)
+  image        String      @db.VarChar(999)
+  created      DateTime?   @db.DateTime(0)
+  modified     DateTime?   @db.DateTime(0)
+  status       Boolean?    @default(true)
   Expenses     Expenses[]
+  documents    documents[]
   Task         Task[]
 }
 
@@ -909,12 +912,6 @@ model accounts_g {
   description String  @db.VarChar(100)
   balance     Decimal @db.Decimal(11, 2)
   status      Int
-}
-
-model categories_g {
-  id              Int               @id @default(autoincrement())
-  name            String
-  price_options_g price_options_g[]
 }
 
 model client_history_g {
@@ -1204,7 +1201,7 @@ model price_options_g {
   value         Int
   categoryId    Int
   order_items_g order_items_g[]
-  categories_g  categories_g    @relation(fields: [categoryId], references: [id])
+  categories_g  doc_categories  @relation(fields: [categoryId], references: [id])
 
   @@index([categoryId], map: "PriceOption_g_categoryId_fkey")
 }
@@ -1856,6 +1853,26 @@ model payments {
   created_at     DateTime @db.DateTime(0)
 
   @@index([po_id], map: "po_id")
+}
+
+model doc_categories {
+  id              Int               @id @default(autoincrement())
+  name            String
+  price_options_g price_options_g[]
+}
+
+model documents {
+  id          Int      @id @default(autoincrement())
+  title       String   @db.VarChar(100)
+  description String   @db.Text
+  category_id Int
+  file_path   String   @db.VarChar(255)
+  uploaded_by Int
+  created_at  DateTime @default(now()) @db.Timestamp(0)
+  updated_at  String   @db.VarChar(100)
+  users       users    @relation(fields: [uploaded_by], references: [id], onUpdate: Restrict, map: "documents_ibfk_1")
+
+  @@index([uploaded_by], map: "uploaded_by")
 }
 
 enum ReportType {

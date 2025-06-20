@@ -1,7 +1,14 @@
 const prisma = require('../lib/prisma');
 const multer = require('multer');
 const path = require('path');
-const { uploadFile } = require('../lib/uploadService');
+const ImageKit = require('imagekit');
+
+// Configure ImageKit
+const imagekit = new ImageKit({
+  publicKey: process.env.IMAGEKIT_PUBLIC_KEY,
+  privateKey: process.env.IMAGEKIT_PRIVATE_KEY,
+  urlEndpoint: process.env.IMAGEKIT_URL_ENDPOINT
+});
 
 // Configure multer for memory storage
 const storage = multer.memoryStorage();
@@ -21,6 +28,23 @@ const upload = multer({
     fileSize: 5 * 1024 * 1024 // 5MB limit
   }
 }).single('attachment');
+
+// Handle file upload to ImageKit
+const handleFileUpload = async (req) => {
+  if (!req.file) return null;
+
+  try {
+    const result = await imagekit.upload({
+      file: req.file.buffer.toString('base64'),
+      fileName: `leave-${Date.now()}${path.extname(req.file.originalname)}`,
+      folder: '/leave-documents'
+    });
+    return result.url;
+  } catch (error) {
+    console.error('Error uploading file to ImageKit:', error);
+    throw new Error('Failed to upload file');
+  }
+};
 
 // Submit leave application
 exports.submitLeave = async (req, res) => {
@@ -54,16 +78,11 @@ exports.submitLeave = async (req, res) => {
 
       if (req.file) {
         try {
-          console.log('Uploading file:', req.file.originalname, req.file.mimetype, req.file.size);
-          const result = await uploadFile(req.file, {
-            folder: 'whoosh/leave-documents',
-            type: 'document',
-            useCache: false
-          });
-          attachmentUrl = result.main.url;
-          console.log('File uploaded successfully:', attachmentUrl);
+          console.log('Uploading file to ImageKit:', req.file.originalname, req.file.mimetype, req.file.size);
+          attachmentUrl = await handleFileUpload(req);
+          console.log('File uploaded successfully to ImageKit:', attachmentUrl);
         } catch (uploadError) {
-          console.error('Error uploading to cloud storage:', uploadError);
+          console.error('Error uploading to ImageKit:', uploadError);
           return res.status(500).json({ error: `Failed to upload document: ${uploadError.message}` });
         }
       }

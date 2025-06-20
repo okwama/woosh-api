@@ -138,48 +138,36 @@ const createJourneyPlan = async (req, res) => {
 const getJourneyPlans = async (req, res) => {
   try {
     const salesRepId = getSalesRepId(req);
-    const { page = 1, limit = 10 } = req.query;
+
+    // Get the start and end of the current day
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
 
     const journeyPlans = await prisma.journeyPlan.findMany({
-      where: { 
+      where: {
         userId: salesRepId,
+        date: {
+          gte: today,
+          lt: tomorrow,
+        },
         client: {
           id: {
             gt: 0,
           },
-        }
+        },
       },
       include: {
         client: true,
       },
       orderBy: {
-        date: 'desc'
-      },
-      skip: (parseInt(page) - 1) * parseInt(limit),
-      take: parseInt(limit),
-    });
-
-    const totalJourneyPlans = await prisma.journeyPlan.count({
-      where: { 
-        userId: salesRepId,
-        client: {
-          id: {
-            gt: 0,
-          },
-        }
+        date: 'asc',
       },
     });
 
-    res.status(200).json({
-      success: true,
-      data: journeyPlans,
-      pagination: {
-        total: totalJourneyPlans,
-        page: parseInt(page),
-        limit: parseInt(limit),
-        totalPages: Math.ceil(totalJourneyPlans / parseInt(limit)),
-      },
-    });
+    res.status(200).json({ success: true, data: journeyPlans });
   } catch (error) {
     console.error('Error fetching journey plans:', error);
     

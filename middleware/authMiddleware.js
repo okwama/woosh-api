@@ -15,10 +15,18 @@ const authenticateToken = async (req, res, next) => {
     let decoded;
     try {
       decoded = jwt.verify(token, process.env.JWT_SECRET);
+      
+      // Check if it's an access token
+      if (decoded.type !== 'access') {
+        return res.status(401).json({ 
+          error: 'Invalid token type. Access token required.',
+          code: 'INVALID_TOKEN_TYPE'
+        });
+      }
     } catch (jwtError) {
       if (jwtError.name === 'TokenExpiredError') {
         return res.status(401).json({ 
-          error: 'Session expired. Please log in again.',
+          error: 'Access token expired. Please refresh your token.',
           code: 'TOKEN_EXPIRED'
         });
       }
@@ -27,64 +35,30 @@ const authenticateToken = async (req, res, next) => {
 
     // Try to check token in database, but don't fail if DB is unavailable
     let tokenRecord = null;
-    let shouldRefresh = false;
     
     try {
-      // Check if token exists in database and is not expired
+      // Check if access token exists in database and is not expired/blacklisted
       tokenRecord = await prisma.token.findFirst({
         where: {
           token: token,
           salesRepId: decoded.userId,
+          tokenType: 'access',
+          blacklisted: false,
           expiresAt: {
             gt: new Date()
           }
         }
       });
 
-      // Check if token needs rotation (every 4 hours)
-      if (tokenRecord) {
-        const tokenAge = Date.now() - tokenRecord.createdAt.getTime();
-        const fourHours = 4 * 60 * 60 * 1000;
-        shouldRefresh = tokenAge > fourHours;
+      if (!tokenRecord) {
+        return res.status(401).json({ 
+          error: 'Invalid or expired access token. Please refresh your token.',
+          code: 'TOKEN_INVALID'
+        });
       }
     } catch (dbError) {
       console.warn('Database connection issue during token validation:', dbError.message);
       // Continue with JWT-only validation if DB is unavailable
-      shouldRefresh = false;
-    }
-
-    // Generate new token if needed
-    if (shouldRefresh && tokenRecord) {
-      try {
-        const newToken = jwt.sign(
-          { userId: decoded.userId, role: decoded.role },
-          process.env.JWT_SECRET,
-          { expiresIn: '9h' }
-        );
-
-        // Store new token
-        await prisma.token.create({
-          data: {
-            token: newToken,
-            salesRepId: decoded.userId,
-            expiresAt: new Date(Date.now() + 9 * 60 * 60 * 1000)
-          }
-        });
-
-        // Update old token to expired instead of blacklisting
-        await prisma.token.update({
-          where: { id: tokenRecord.id },
-          data: { 
-            expiresAt: new Date() // Set to current time to expire it
-          }
-        });
-
-        // Set new token in response header
-        res.setHeader('X-New-Token', newToken);
-      } catch (refreshError) {
-        console.warn('Token refresh failed:', refreshError.message);
-        // Continue with existing token if refresh fails
-      }
     }
 
     // Get user details
@@ -93,7 +67,8 @@ const authenticateToken = async (req, res, next) => {
       user = await prisma.salesRep.findUnique({
         where: { id: decoded.userId },
         include: {
-          Manager: true
+          Manager: true,
+          countryRelation: true
         }
       });
     } catch (userError) {

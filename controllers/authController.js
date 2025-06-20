@@ -95,31 +95,47 @@ const register = async (req, res) => {
         });
       }
 
-      // Generate token
-      const token = jwt.sign(
-        { userId: salesRep.id, role: salesRep.role },
+      // Generate access token (short-lived - 15 minutes)
+      const accessToken = jwt.sign(
+        { userId: salesRep.id, role: salesRep.role, type: 'access' },
         process.env.JWT_SECRET,
-        { expiresIn: '9h' }
+        { expiresIn: '15m' }
       );
 
-      // Store token
+      // Generate refresh token (long-lived - 7 days)
+      const refreshToken = jwt.sign(
+        { userId: salesRep.id, role: salesRep.role, type: 'refresh' },
+        process.env.JWT_SECRET,
+        { expiresIn: '7d' }
+      );
+
+      // Store both tokens
       await tx.token.create({
         data: {
-          token,
-          user: {
-            connect: { id: salesRep.id }
-          },
-          expiresAt: new Date(Date.now() + 9 * 60 * 60 * 1000) // 9 hours
+          token: accessToken,
+          salesRepId: salesRep.id,
+          tokenType: 'access',
+          expiresAt: new Date(Date.now() + 15 * 60 * 1000) // 15 minutes
+        }
+      });
+
+      await tx.token.create({
+        data: {
+          token: refreshToken,
+          salesRepId: salesRep.id,
+          tokenType: 'refresh',
+          expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) // 7 days
         }
       });
       
-      return { salesRep, token };
+      return { salesRep, accessToken, refreshToken };
     });
 
     res.status(201).json({
       message: 'Registration successful',
       salesRep: result.salesRep,
-      token: result.token
+      accessToken: result.accessToken,
+      refreshToken: result.refreshToken
     });
   } catch (error) {
     console.error('Registration error:', error);
@@ -165,29 +181,52 @@ const login = async (req, res) => {
       });
     }
 
-    // Generate JWT token
-    const tokenPayload = {
+    // Generate access token (short-lived - 15 minutes)
+    const accessTokenPayload = {
       userId: salesRep.id,
-      role: salesRep.role
+      role: salesRep.role,
+      type: 'access'
     };
-    console.log('Token payload:', tokenPayload);
     
-    const token = jwt.sign(tokenPayload, process.env.JWT_SECRET, { expiresIn: '9h' });
-    console.log('Token generated successfully');
+    const accessToken = jwt.sign(accessTokenPayload, process.env.JWT_SECRET, { expiresIn: '15m' });
+    console.log('Access token generated successfully');
 
-    // Store token in database
-    await prisma.token.create({
-      data: {
-        token,
-        user: {
-          connect: { id: salesRep.id }
-        },
-        expiresAt: new Date(Date.now() + 9 * 60 * 60 * 1000) // 9 hours
-      }
+    // Generate refresh token (long-lived - 7 days)
+    const refreshTokenPayload = {
+      userId: salesRep.id,
+      role: salesRep.role,
+      type: 'refresh'
+    };
+    
+    const refreshToken = jwt.sign(refreshTokenPayload, process.env.JWT_SECRET, { expiresIn: '7d' });
+    console.log('Refresh token generated successfully');
+
+    // Store both tokens in database
+    await prisma.$transaction(async (tx) => {
+      // Store access token
+      await tx.token.create({
+        data: {
+          token: accessToken,
+          salesRepId: salesRep.id,
+          tokenType: 'access',
+          expiresAt: new Date(Date.now() + 15 * 60 * 1000) // 15 minutes
+        }
+      });
+
+      // Store refresh token
+      await tx.token.create({
+        data: {
+          token: refreshToken,
+          salesRepId: salesRep.id,
+          tokenType: 'refresh',
+          expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) // 7 days
+        }
+      });
     });
-        console.log('Token stored in database');
 
-    // Return user and token with role
+    console.log('Tokens stored in database');
+
+    // Return user and tokens
     res.json({
       success: true,
       salesRep: {
@@ -197,14 +236,15 @@ const login = async (req, res) => {
         role: salesRep.role,
         email: salesRep.email,
         photoUrl: salesRep.photoUrl,
-        // department: salesRep.Manager?.department,
         region: salesRep.region,
         region_id: salesRep.region_id,
         route_id: salesRep.route_id,
         countryId: salesRep.countryId,
         country: salesRep.countryRelation
       },
-      token
+      accessToken,
+      refreshToken,
+      expiresIn: 15 * 60 // 15 minutes in seconds
     });
 
   } catch (error) {
@@ -219,78 +259,151 @@ const login = async (req, res) => {
 
 const logout = async (req, res) => {
   try {
-    await prisma.token.deleteMany({
-      where: { token: req.token },
+    // Blacklist all tokens (both access and refresh) for the current user
+    await prisma.token.updateMany({
+      where: { 
+        salesRepId: req.user.id,
+        blacklisted: false
+      },
+      data: { 
+        blacklisted: true 
+      }
     });
-    res.json({ message: 'Logged out successfully' });
+
+    res.json({ 
+      success: true,
+      message: 'Logged out successfully' 
+    });
   } catch (error) {
-    res.status(500).json({ error: 'Logout failed' });
+    console.error('Logout error:', error);
+    res.status(500).json({ 
+      success: false,
+      error: 'Logout failed' 
+    });
   }
 };
 
 const refresh = async (req, res) => {
   try {
-    const oldToken = req.headers.authorization?.replace('Bearer ', '');
+    const { refreshToken } = req.body;
     
-    if (!oldToken) {
-      return res.status(401).json({ error: 'No token provided' });
+    if (!refreshToken) {
+      return res.status(401).json({ 
+        success: false,
+        error: 'Refresh token required' 
+      });
     }
 
     try {
-      // Verify the old token
-      const decoded = jwt.verify(oldToken, process.env.JWT_SECRET);
+      // Verify the refresh token
+      const decoded = jwt.verify(refreshToken, process.env.JWT_SECRET);
+      
+      // Check if it's actually a refresh token
+      if (decoded.type !== 'refresh') {
+        return res.status(401).json({ 
+          success: false,
+          error: 'Invalid token type' 
+        });
+      }
       
       // Get user from database
       const user = await prisma.salesRep.findUnique({
         where: { id: decoded.userId },
         include: {
           Manager: true,
-          country: true
+          countryRelation: true
         }
       });
 
       if (!user) {
-        return res.status(401).json({ error: 'User not found' });
+        return res.status(401).json({ 
+          success: false,
+          error: 'User not found' 
+        });
       }
 
-      // Generate new token
-      const newToken = jwt.sign(
-        { userId: user.id, role: user.role },
+      // Check if refresh token exists and is not blacklisted
+      const refreshTokenRecord = await prisma.token.findFirst({
+        where: {
+          token: refreshToken,
+          salesRepId: decoded.userId,
+          tokenType: 'refresh',
+          blacklisted: false,
+          expiresAt: {
+            gt: new Date()
+          }
+        }
+      });
+
+      if (!refreshTokenRecord) {
+        return res.status(401).json({ 
+          success: false,
+          error: 'Invalid or expired refresh token' 
+        });
+      }
+
+      // Generate new access token
+      const newAccessToken = jwt.sign(
+        { 
+          userId: user.id, 
+          role: user.role,
+          type: 'access'
+        },
         process.env.JWT_SECRET,
-        { expiresIn: '9h' }
+        { expiresIn: '15m' }
       );
 
       // Calculate expiration time
-      const expiresAt = new Date(Date.now() + 9 * 60 * 60 * 1000); // 9 hours from now
+      const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes from now
 
-      // Store new token in database
+      // Store new access token in database
       await prisma.token.create({
         data: {
-          token: newToken,
+          token: newAccessToken,
           salesRepId: user.id,
+          tokenType: 'access',
           expiresAt: expiresAt,
           blacklisted: false
         }
       });
 
-      // Blacklist old token instead of deleting it
-      await prisma.token.updateMany({
-        where: { token: oldToken },
-        data: { blacklisted: true }
+      // Update refresh token last used
+      await prisma.token.update({
+        where: { id: refreshTokenRecord.id },
+        data: { lastUsedAt: new Date() }
       });
 
       res.json({
         success: true,
-        token: newToken,
-        expiresAt: expiresAt
+        accessToken: newAccessToken,
+        expiresIn: 15 * 60, // 15 minutes in seconds
+        user: {
+          id: user.id,
+          name: user.name,
+          phoneNumber: user.phoneNumber,
+          role: user.role,
+          email: user.email,
+          photoUrl: user.photoUrl,
+          region: user.region,
+          region_id: user.region_id,
+          route_id: user.route_id,
+          countryId: user.countryId,
+          country: user.countryRelation
+        }
       });
     } catch (error) {
       console.error('Token refresh error:', error);
-      return res.status(401).json({ error: 'Invalid token' });
+      return res.status(401).json({ 
+        success: false,
+        error: 'Invalid refresh token' 
+      });
     }
   } catch (error) {
     console.error('Server error during refresh:', error);
-    res.status(500).json({ error: 'Server error' });
+    res.status(500).json({ 
+      success: false,
+      error: 'Server error' 
+    });
   }
 };
 
