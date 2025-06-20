@@ -135,16 +135,24 @@ const createJourneyPlan = async (req, res) => {
 };
 
 // Get all journey plans for the authenticated sales rep with client details
+// This function only fetches journey plans for the current day
 const getJourneyPlans = async (req, res) => {
   try {
     const salesRepId = getSalesRepId(req);
 
-    // Get the start and end of the current day
-    const today = new Date();
+    // Get timezone from query params or use Nairobi as default
+    const timezone = req.query.timezone || 'Africa/Nairobi';
+    
+    // Get the current date in the specified timezone
+    const now = new Date();
+    const today = new Date(now.toLocaleString("en-US", {timeZone: timezone}));
     today.setHours(0, 0, 0, 0);
 
     const tomorrow = new Date(today);
     tomorrow.setDate(tomorrow.getDate() + 1);
+
+    console.log(`Fetching journey plans for sales rep ${salesRepId} on ${today.toISOString().split('T')[0]} in timezone ${timezone}`);
+    console.log(`Date range: ${today.toISOString()} to ${tomorrow.toISOString()}`);
 
     const journeyPlans = await prisma.journeyPlan.findMany({
       where: {
@@ -167,6 +175,13 @@ const getJourneyPlans = async (req, res) => {
       },
     });
 
+    console.log(`Found ${journeyPlans.length} journey plans for today`);
+    
+    // Log the dates of found journey plans for debugging
+    if (journeyPlans.length > 0) {
+      console.log('Journey plan dates:', journeyPlans.map(jp => jp.date.toISOString().split('T')[0]));
+    }
+    
     res.status(200).json({ success: true, data: journeyPlans });
   } catch (error) {
     console.error('Error fetching journey plans:', error);
