@@ -141,7 +141,14 @@ const getJourneyPlans = async (req, res) => {
     const { page = 1, limit = 10 } = req.query;
 
     const journeyPlans = await prisma.journeyPlan.findMany({
-      where: { userId: salesRepId },
+      where: { 
+        userId: salesRepId,
+        client: {
+          id: {
+            gt: 0,
+          },
+        }
+      },
       include: {
         client: true,
       },
@@ -153,7 +160,14 @@ const getJourneyPlans = async (req, res) => {
     });
 
     const totalJourneyPlans = await prisma.journeyPlan.count({
-      where: { userId: salesRepId },
+      where: { 
+        userId: salesRepId,
+        client: {
+          id: {
+            gt: 0,
+          },
+        }
+      },
     });
 
     res.status(200).json({
