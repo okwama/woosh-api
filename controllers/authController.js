@@ -348,10 +348,73 @@ const refresh = async (req, res) => {
           }
         });
 
+        // If refresh token is invalid or expired, generate new tokens
         if (!refreshTokenRecord) {
-          throw new Error('Invalid or expired refresh token');
+          console.log('Refresh token invalid or expired, generating new tokens for user:', user.id);
+          
+          // Blacklist the old refresh token if it exists
+          await tx.token.updateMany({
+            where: {
+              token: refreshToken,
+              salesRepId: decoded.userId,
+              tokenType: 'refresh'
+            },
+            data: { blacklisted: true }
+          });
+
+          // Generate new refresh token
+          const newRefreshToken = jwt.sign(
+            { 
+              userId: user.id, 
+              role: user.role,
+              type: 'refresh'
+            },
+            process.env.JWT_SECRET,
+            { expiresIn: '7d' }
+          );
+
+          // Store new refresh token
+          await tx.token.create({
+            data: {
+              token: newRefreshToken,
+              salesRepId: user.id,
+              tokenType: 'refresh',
+              expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
+              blacklisted: false
+            }
+          });
+
+          // Generate new access token
+          const newAccessToken = jwt.sign(
+            { 
+              userId: user.id, 
+              role: user.role,
+              type: 'access'
+            },
+            process.env.JWT_SECRET,
+            { expiresIn: '8h' }
+          );
+
+          // Store new access token
+          await tx.token.create({
+            data: {
+              token: newAccessToken,
+              salesRepId: user.id,
+              tokenType: 'access',
+              expiresAt: new Date(Date.now() + 8 * 60 * 60 * 1000), // 8 hours
+              blacklisted: false
+            }
+          });
+
+          return {
+            accessToken: newAccessToken,
+            refreshToken: newRefreshToken,
+            user: user,
+            tokensRegenerated: true
+          };
         }
 
+        // Original flow - refresh token is valid
         // Generate new access token
         const newAccessToken = jwt.sign(
           { 
@@ -385,7 +448,9 @@ const refresh = async (req, res) => {
 
         return {
           accessToken: newAccessToken,
-          user: user
+          refreshToken: refreshToken, // Return the same refresh token
+          user: user,
+          tokensRegenerated: false
         };
       } catch (error) {
         console.error('Token refresh error:', error);
@@ -396,7 +461,9 @@ const refresh = async (req, res) => {
     res.json({
       success: true,
       accessToken: result.accessToken,
+      refreshToken: result.refreshToken,
       expiresIn: 8 * 60 * 60, // 8 hours in seconds
+      tokensRegenerated: result.tokensRegenerated,
       user: {
         id: result.user.id,
         name: result.user.name,
@@ -425,13 +492,6 @@ const refresh = async (req, res) => {
       return res.status(401).json({ 
         success: false,
         error: 'User not found' 
-      });
-    }
-    
-    if (error.message === 'Invalid or expired refresh token') {
-      return res.status(401).json({ 
-        success: false,
-        error: 'Invalid or expired refresh token' 
       });
     }
     
