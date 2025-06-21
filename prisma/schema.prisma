@@ -113,11 +113,11 @@ model Token {
   id          Int       @id @default(autoincrement())
   token       String
   salesRepId  Int
-  tokenType   String    @default("access") // "access" or "refresh"
   createdAt   DateTime  @default(now())
   expiresAt   DateTime
   blacklisted Boolean   @default(false)
   lastUsedAt  DateTime?
+  tokenType   String    @default("access")
   user        SalesRep  @relation(fields: [salesRepId], references: [id], onDelete: Cascade)
 
   @@index([salesRepId], map: "Token_userId_fkey")
@@ -316,6 +316,7 @@ model Clients {
   location           String?
   status             Int                  @default(0)
   client_type        Int?
+  outlet_account     Int
   countryId          Int
   added_by           Int?
   created_at         DateTime?            @default(now())
@@ -1873,6 +1874,17 @@ model documents {
   users       users    @relation(fields: [uploaded_by], references: [id], onUpdate: Restrict, map: "documents_ibfk_1")
 
   @@index([uploaded_by], map: "uploaded_by")
+}
+
+model outlet_accounts {
+  id     Int    @id @default(autoincrement())
+  name   String @db.VarChar(100)
+  status Int
+}
+
+model outlet_categories {
+  id   Int    @id @default(autoincrement())
+  name String @db.VarChar(100)
 }
 
 enum ReportType {
