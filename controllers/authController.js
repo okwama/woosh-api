@@ -95,11 +95,11 @@ const register = async (req, res) => {
         });
       }
 
-      // Generate access token (short-lived - 15 minutes)
+      // Generate access token (short-lived - 8 hours)
       const accessToken = jwt.sign(
         { userId: salesRep.id, role: salesRep.role, type: 'access' },
         process.env.JWT_SECRET,
-        { expiresIn: '15m' }
+        { expiresIn: '8h' }
       );
 
       // Generate refresh token (long-lived - 7 days)
@@ -115,7 +115,7 @@ const register = async (req, res) => {
           token: accessToken,
           salesRepId: salesRep.id,
           tokenType: 'access',
-          expiresAt: new Date(Date.now() + 15 * 60 * 1000) // 15 minutes
+          expiresAt: new Date(Date.now() + 8 * 60 * 60 * 1000) // 8 hours
         }
       });
 
@@ -177,14 +177,14 @@ const login = async (req, res) => {
         throw new Error('Invalid phone number or password');
       }
 
-      // Generate access token (short-lived - 15 minutes)
+      // Generate access token (short-lived - 8 hours)
       const accessTokenPayload = {
         userId: salesRep.id,
         role: salesRep.role,
         type: 'access'
       };
       
-      const accessToken = jwt.sign(accessTokenPayload, process.env.JWT_SECRET, { expiresIn: '15m' });
+      const accessToken = jwt.sign(accessTokenPayload, process.env.JWT_SECRET, { expiresIn: '8h' });
       console.log('Access token generated successfully');
 
       // Generate refresh token (long-lived - 7 days)
@@ -203,7 +203,7 @@ const login = async (req, res) => {
           token: accessToken,
           salesRepId: salesRep.id,
           tokenType: 'access',
-          expiresAt: new Date(Date.now() + 15 * 60 * 1000) // 15 minutes
+          expiresAt: new Date(Date.now() + 8 * 60 * 60 * 1000) // 8 hours
         }
       });
 
@@ -243,7 +243,7 @@ const login = async (req, res) => {
       },
       accessToken: result.accessToken,
       refreshToken: result.refreshToken,
-      expiresIn: 15 * 60 // 15 minutes in seconds
+      expiresIn: 8 * 60 * 60 // 8 hours in seconds
     });
 
   } catch (error) {
@@ -360,11 +360,11 @@ const refresh = async (req, res) => {
             type: 'access'
           },
           process.env.JWT_SECRET,
-          { expiresIn: '15m' }
+          { expiresIn: '8h' }
         );
 
         // Calculate expiration time
-        const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes from now
+        const expiresAt = new Date(Date.now() + 8 * 60 * 60 * 1000); // 8 hours from now
 
         // Store new access token in database
         await tx.token.create({
@@ -396,7 +396,7 @@ const refresh = async (req, res) => {
     res.json({
       success: true,
       accessToken: result.accessToken,
-      expiresIn: 15 * 60, // 15 minutes in seconds
+      expiresIn: 8 * 60 * 60, // 8 hours in seconds
       user: {
         id: result.user.id,
         name: result.user.name,
