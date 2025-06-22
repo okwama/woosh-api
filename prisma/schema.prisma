@@ -31,6 +31,8 @@ model SalesRep {
   route_name_update    String               @db.VarChar(100)
   visits_targets       Int
   new_clients          Int
+  vapes_targets        Int
+  pouches_targets      Int
   role                 String?              @default("USER")
   manager_type         Int
   status               Int?                 @default(0)
