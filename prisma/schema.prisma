@@ -318,7 +318,7 @@ model Clients {
   location           String?
   status             Int                  @default(0)
   client_type        Int?
-  outlet_account     Int
+  outlet_account     Int?
   countryId          Int
   added_by           Int?
   created_at         DateTime?            @default(now())
