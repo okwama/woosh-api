@@ -421,6 +421,7 @@ model OrderItem {
 model MyOrder {
   id                   Int         @id @default(autoincrement())
   totalAmount          Float
+  totalCost            Decimal     @db.Decimal(11, 2)
   amountPaid           Decimal     @db.Decimal(11, 2)
   balance              Decimal     @db.Decimal(11, 2)
   comment              String
@@ -700,7 +701,7 @@ model UpliftSaleItem {
 model Suppliers {
   id              Int               @id @default(autoincrement())
   name            String
-  accountBalance  Float             @default(0)
+  accountBalance  Decimal           @default(0.00) @db.Decimal(11, 2)
   contact         String
   Purchase        Purchase[]
   SupplierHistory SupplierHistory[]
@@ -853,6 +854,7 @@ model stock_transfer {
 model account_update {
   id               Int     @id @default(autoincrement())
   account_id       Int
+  account_type     Int
   reference        String  @db.VarChar(250)
   amount           Decimal @db.Decimal(11, 2)
   amount_in        Decimal @db.Decimal(11, 2)
@@ -867,6 +869,7 @@ model account_update {
 
 model accounts {
   id          Int     @id @default(autoincrement())
+  account_id  Int
   name        String  @db.VarChar(100)
   description String  @db.VarChar(100)
   balance     Decimal @db.Decimal(11, 2)
