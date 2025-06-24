@@ -2,6 +2,7 @@ const prisma = require('../lib/prisma');
 const multer = require('multer');
 const ImageKit = require('imagekit');
 const path = require('path');
+const { getCurrencyValue } = require('../lib/currencyUtils');
 
 // Initialize ImageKit
 const imagekit = new ImageKit({
@@ -37,69 +38,173 @@ const getUserId = (req) => {
   return req.user.id;
 };
 
+// Helper function for retry logic
+const retryOperation = async (operation, maxRetries = 3, delay = 1000) => {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      return await operation();
+    } catch (error) {
+      if (attempt === maxRetries) {
+        throw error;
+      }
+      
+      // Check if it's a database connection error
+      if (error.code === 'P1001' || error.message.includes('Can\'t reach database server')) {
+        console.warn(`Database connection attempt ${attempt} failed, retrying in ${delay}ms...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        delay *= 2; // Exponential backoff
+      } else {
+        throw error; // Don't retry for other types of errors
+      }
+    }
+  }
+};
+
+// Helper function to safely fetch store quantities with fallback
+const getStoreQuantitiesWithFallback = async (productId) => {
+  try {
+    return await retryOperation(async () => {
+      return await prisma.storeQuantity.findMany({
+        where: { productId: productId },
+        include: {
+          store: true
+        }
+      });
+    });
+  } catch (error) {
+    console.warn(`Failed to fetch store quantities for product ${productId}:`, error.message);
+    // Return empty array as fallback
+    return [];
+  }
+};
+
 // Get all products
 const getProducts = async (req, res) => {
   try {
     const userId = getUserId(req);
     const { page = 1, limit = 10 } = req.query;
 
-    // Get products with pagination
-    const products = await prisma.product.findMany({
-      include: {
-        client: true,
-        orderItems: true,
-        storeQuantities: true,
-        purchaseHistory: true
-      },
-      orderBy: {
-        name: 'asc',
-      },
-      skip: (parseInt(page) - 1) * parseInt(limit),
-      take: parseInt(limit),
-    });
+    // Get user country information for currency display with retry
+    let user;
+    try {
+      user = await retryOperation(async () => {
+        return await prisma.salesRep.findUnique({
+          where: { id: userId },
+          select: { 
+            countryId: true
+          }
+        });
+      });
+    } catch (error) {
+      console.warn('Failed to fetch user country info, using default:', error.message);
+      user = { countryId: 1 }; // Default fallback
+    }
 
-    // Get price options for the category_id of each product
+    // Get products with pagination and retry
+    let products;
+    try {
+      products = await retryOperation(async () => {
+        return await prisma.product.findMany({
+          include: {
+            client: true,
+            orderItems: true,
+            storeQuantities: true,
+            purchaseHistory: true
+          },
+          orderBy: {
+            name: 'asc',
+          },
+          skip: (parseInt(page) - 1) * parseInt(limit),
+          take: parseInt(limit),
+        });
+      });
+    } catch (error) {
+      console.error('Failed to fetch products after retries:', error);
+      return res.status(503).json({
+        error: 'Database temporarily unavailable',
+        message: 'Please try again later',
+        retryAfter: 30 // Suggest retry after 30 seconds
+      });
+    }
+
+    // Get price options for the category_id of each product with fallback
     const productsWithPriceOptions = await Promise.all(products.map(async (product) => {
-      const categoryWithPriceOptions = await prisma.category.findUnique({
-        where: { id: product.category_id },
-        include: {
-          priceOptions: true
-        }
-      });
+      let categoryWithPriceOptions;
+      try {
+        categoryWithPriceOptions = await retryOperation(async () => {
+          return await prisma.category.findUnique({
+            where: { id: product.category_id },
+            include: {
+              priceOptions: true
+            }
+          });
+        });
+      } catch (error) {
+        console.warn(`Failed to fetch category for product ${product.id}:`, error.message);
+        categoryWithPriceOptions = { priceOptions: [] }; // Fallback
+      }
 
-      // Get store quantities for this product
-      const storeQuantities = await prisma.storeQuantity.findMany({
-        where: { productId: product.id },
-        include: {
-          store: true
-        }
-      });
+      // Get store quantities for this product with fallback
+      const storeQuantities = await getStoreQuantitiesWithFallback(product.id);
 
-      return {
+      // Apply currency filtering based on user's country
+      const filteredProduct = {
         ...product,
-        priceOptions: categoryWithPriceOptions?.priceOptions || [],
+        // Filter product unit cost based on country
+        unit_cost: getCurrencyValue(product, user.countryId, 'product'),
+        priceOptions: categoryWithPriceOptions?.priceOptions.map(priceOption => ({
+          ...priceOption,
+          // Filter price option value based on country
+          value: getCurrencyValue(priceOption, user.countryId, 'priceOption')
+        })) || [],
         storeQuantities: storeQuantities
       };
+
+      return filteredProduct;
     }));
 
-    // Get total count for pagination
-    const totalProducts = await prisma.product.count();
+    // Get total count for pagination with retry
+    let totalProducts;
+    try {
+      totalProducts = await retryOperation(async () => {
+        return await prisma.product.count();
+      });
+    } catch (error) {
+      console.warn('Failed to get total product count, using fallback:', error.message);
+      totalProducts = products.length; // Fallback to current page count
+    }
 
     res.status(200).json({
       success: true,
       data: productsWithPriceOptions,
+      userCountry: user, // Include user country info for frontend currency logic
       pagination: {
         total: totalProducts,
         page: parseInt(page),
         limit: parseInt(limit),
         totalPages: Math.ceil(totalProducts / parseInt(limit)),
       },
+      // Add metadata about any fallbacks used
+      metadata: {
+        hasFallbacks: productsWithPriceOptions.some(p => p.storeQuantities.length === 0),
+        databaseStatus: 'connected'
+      }
     });
   } catch (error) {
     console.error('Error fetching products:', error);
     
     if (error.message === 'User authentication required') {
       return res.status(401).json({ error: 'Authentication required' });
+    }
+    
+    // Handle specific database connection errors
+    if (error.code === 'P1001' || error.message.includes('Can\'t reach database server')) {
+      return res.status(503).json({
+        error: 'Database temporarily unavailable',
+        message: 'Please try again later',
+        retryAfter: 30,
+        details: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
     }
     
     res.status(500).json({ 
@@ -144,6 +249,9 @@ const createProduct = async (req, res) => {
         category,
         currentStock,
         clientId,
+        unit_cost,
+        unit_cost_tzs,
+        unit_cost_ngn,
       } = req.body;
       const userId = getUserId(req);
 
@@ -183,6 +291,9 @@ const createProduct = async (req, res) => {
           currentStock: parseInt(currentStock) || 0,
           clientId: parseInt(clientId),
           image: imageUrl,
+          unit_cost: parseFloat(unit_cost) || 0,
+          unit_cost_tzs: parseFloat(unit_cost_tzs) || 0,
+          unit_cost_ngn: parseFloat(unit_cost_ngn) || 0,
         },
         include: {
           client: true,
@@ -229,6 +340,9 @@ const updateProduct = async (req, res) => {
         category,
         currentStock,
         clientId,
+        unit_cost,
+        unit_cost_tzs,
+        unit_cost_ngn,
       } = req.body;
       const userId = getUserId(req);
 
@@ -260,6 +374,9 @@ const updateProduct = async (req, res) => {
           currentStock: currentStock ? parseInt(currentStock) : existingProduct.currentStock,
           clientId: clientId ? parseInt(clientId) : existingProduct.clientId,
           image: imageUrl || existingProduct.image,
+          unit_cost: unit_cost ? parseFloat(unit_cost) : existingProduct.unit_cost,
+          unit_cost_tzs: unit_cost_tzs ? parseFloat(unit_cost_tzs) : existingProduct.unit_cost_tzs,
+          unit_cost_ngn: unit_cost_ngn ? parseFloat(unit_cost_ngn) : existingProduct.unit_cost_ngn,
         },
         include: {
           client: true,
@@ -333,4 +450,5 @@ module.exports = {
   createProduct,
   updateProduct,
   deleteProduct,
+  getCurrencyValue,
 }; 

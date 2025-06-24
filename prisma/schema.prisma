@@ -159,12 +159,15 @@ model PriceOption {
   id         Int         @id @default(autoincrement())
   option     String
   value      Int
+  value_tzs  Decimal?                @db.Decimal(11, 2)
+  value_ngn  Decimal?                @db.Decimal(11, 2)
   categoryId Int
   orderItems OrderItem[]
   category   Category    @relation(fields: [categoryId], references: [id])
 
   @@index([categoryId], map: "PriceOption_categoryId_fkey")
 }
+
 
 model StoreQuantity {
   id        Int     @id @default(autoincrement())
@@ -203,6 +206,8 @@ model Product {
   category_id          Int
   category             String
   unit_cost            Decimal                @db.Decimal(11, 2)
+  unit_cost_tzs        Decimal?                @db.Decimal(11, 2)
+  unit_cost_ngn        Decimal?                @db.Decimal(11, 2)
   description          String?
   currentStock         Int?
   createdAt            DateTime               @default(now())
@@ -318,7 +323,7 @@ model Clients {
   location           String?
   status             Int                  @default(0)
   client_type        Int?
-  outlet_account     Int?
+  outlet_account     Int
   countryId          Int
   added_by           Int?
   created_at         DateTime?            @default(now())
@@ -725,26 +730,27 @@ model SupplierHistory {
 }
 
 model users {
-  id           Int         @id @default(autoincrement())
-  username     String      @db.VarChar(100)
-  department   Int
-  password     String      @db.VarChar(100)
-  account_code String      @db.VarChar(32)
-  firstname    String?     @db.VarChar(255)
-  lastname     String?     @db.VarChar(255)
-  facebook_id  String?     @db.VarChar(255)
-  address      String?     @db.VarChar(255)
-  email        String?     @db.VarChar(255)
-  phone        String      @db.VarChar(32)
-  gender       String      @db.VarChar(32)
-  country      String      @db.VarChar(99)
-  image        String      @db.VarChar(999)
-  created      DateTime?   @db.DateTime(0)
-  modified     DateTime?   @db.DateTime(0)
-  status       Boolean?    @default(true)
-  Expenses     Expenses[]
-  documents    documents[]
-  Task         Task[]
+  id            Int         @id @default(autoincrement())
+  username      String      @db.VarChar(100)
+  department    Int
+  password      String      @db.VarChar(100)
+  account_code  String      @db.VarChar(32)
+  firstname     String?     @db.VarChar(255)
+  lastname      String?     @db.VarChar(255)
+  facebook_id   String?     @db.VarChar(255)
+  address       String?     @db.VarChar(255)
+  email         String?     @db.VarChar(255)
+  phone         String      @db.VarChar(32)
+  gender        String      @db.VarChar(32)
+  country       String      @db.VarChar(99)
+  image         String      @db.VarChar(999)
+  created       DateTime?   @db.DateTime(0)
+  modified      DateTime?   @db.DateTime(0)
+  status        Boolean?    @default(true)
+  profile_photo String      @db.VarChar(255)
+  Expenses      Expenses[]
+  documents     documents[]
+  Task          Task[]
 }
 
 model Task {
