@@ -312,58 +312,92 @@ const createOrder = asyncHandler(async (req, res) => {
             quantity: sq.quantity
           }))
         });
+
+        // 🎯 SIMPLE OVERRIDE: Country 2 users can only access their own country's stores
+        let availableStoreQuantities = [];
         
-        // Second filter: Get region-matching stores (primary preference)
-        const regionMatchingStores = activeStores.filter(sq => {
-          const store = sq.store;
-          const storeRegionId = store.regionId || store.region_id;
+        if (userCountryId === 2) {
+          // Country 2 override: Only allow stores from user's country
+          console.log('[Order Debug] 🎯 Country 2 override activated - restricting to user country only');
           
-          // Store matches if its region matches user's region
-          const matches = storeRegionId === userRegionId;
+          availableStoreQuantities = activeStores.filter(sq => {
+            const store = sq.store;
+            const matches = store.countryId === userCountryId;
+            
+            if (matches) {
+              console.log(`[Order Debug] Country 2 override: Store ${store.id} (${store.name}) matched user country:`, {
+                storeCountryId: store.countryId,
+                userCountryId: userCountryId
+              });
+            }
+            
+            return matches;
+          });
           
-          if (matches) {
-            console.log(`[Order Debug] Store ${store.id} (${store.name}) matched region:`, {
-              storeRegionId,
-              userRegionId
-            });
-          }
+          console.log('[Order Debug] Country 2 override results:', {
+            totalActiveStores: activeStores.length,
+            countryMatchingStores: availableStoreQuantities.length,
+            userCountry: userCountryId
+          });
           
-          return matches;
-        });
-        
-        // Third filter: Get country-level stores (fallback)
-        const countryMatchingStores = activeStores.filter(sq => {
-          const store = sq.store;
-          const storeRegionId = store.regionId || store.region_id;
-          const storeCountryId = store.countryId;
+        } else {
+          // Normal logic for other countries: region first, then country fallback
+          console.log('[Order Debug] Using normal stock validation logic for country:', userCountryId);
           
-          // Store matches if it has no region (country-level store) and matches country
-          const matches = !storeRegionId && storeCountryId === userCountryId;
+          // Second filter: Get region-matching stores (primary preference)
+          const regionMatchingStores = activeStores.filter(sq => {
+            const store = sq.store;
+            const storeRegionId = store.regionId || store.region_id;
+            
+            // Store matches if its region matches user's region
+            const matches = storeRegionId === userRegionId;
+            
+            if (matches) {
+              console.log(`[Order Debug] Store ${store.id} (${store.name}) matched region:`, {
+                storeRegionId,
+                userRegionId
+              });
+            }
+            
+            return matches;
+          });
           
-          if (matches) {
-            console.log(`[Order Debug] Store ${store.id} (${store.name}) matched country:`, {
-              storeCountryId,
-              userCountryId,
-              reason: 'country-level store'
-            });
-          }
+          // Third filter: Get country-level stores (fallback)
+          const countryMatchingStores = activeStores.filter(sq => {
+            const store = sq.store;
+            const storeRegionId = store.regionId || store.region_id;
+            const storeCountryId = store.countryId;
+            
+            // Store matches if it has no region (country-level store) and matches country
+            const matches = !storeRegionId && storeCountryId === userCountryId;
+            
+            if (matches) {
+              console.log(`[Order Debug] Store ${store.id} (${store.name}) matched country:`, {
+                storeCountryId,
+                userCountryId,
+                reason: 'country-level store'
+              });
+            }
+            
+            return matches;
+          });
           
-          return matches;
-        });
-        
-        console.log('[Order Debug] Region and country matching stores:', {
-          regionMatches: regionMatchingStores.length,
-          countryMatches: countryMatchingStores.length,
-          regionStock: regionMatchingStores.reduce((sum, sq) => sum + Number(sq.quantity || 0), 0),
-          countryStock: countryMatchingStores.reduce((sum, sq) => sum + Number(sq.quantity || 0), 0)
-        });
-        
-        // Combine both region and country stores for maximum availability
-        let availableStoreQuantities = [...regionMatchingStores, ...countryMatchingStores];
+          console.log('[Order Debug] Region and country matching stores:', {
+            regionMatches: regionMatchingStores.length,
+            countryMatches: countryMatchingStores.length,
+            regionStock: regionMatchingStores.reduce((sum, sq) => sum + Number(sq.quantity || 0), 0),
+            countryStock: countryMatchingStores.reduce((sum, sq) => sum + Number(sq.quantity || 0), 0)
+          });
+          
+          // Combine both region and country stores for maximum availability
+          availableStoreQuantities = [...regionMatchingStores, ...countryMatchingStores];
+        }
         
         console.log('[Order Debug] Available stores after filtering:', {
           total: product.storeQuantities.length,
           matching: availableStoreQuantities.length,
+          userCountry: userCountryId,
+          overrideApplied: userCountryId === 2,
           stores: availableStoreQuantities.map(sq => ({
             id: sq.store.id,
             name: sq.store.name,
@@ -435,11 +469,17 @@ const createOrder = asyncHandler(async (req, res) => {
         // Check if we have any region or country matching stores
         if (availableStoreQuantities.length === 0) {
           // Get stock information for debugging
-          const regionStock = regionMatchingStores.reduce((sum, sq) => sum + Number(sq.quantity || 0), 0);
-          const countryStock = countryMatchingStores.reduce((sum, sq) => sum + Number(sq.quantity || 0), 0);
           const totalActiveStock = activeStores.reduce((sum, sq) => sum + Number(sq.quantity || 0), 0);
           
-          const error = `No stock available for product ${product.name} in your region (${userRegionId}) or country (${userCountryId}). Please contact support.`;
+          let error = '';
+          if (userCountryId === 2) {
+            // Country 2 specific error message
+            error = `No stock available for product ${product.name} in your country (${userCountryId}). Country 2 users can only access stock from their own country.`;
+          } else {
+            // Normal error message for other countries
+            error = `No stock available for product ${product.name} in your region (${userRegionId}) or country (${userCountryId}). Please contact support.`;
+          }
+          
           console.log('[Order Debug] No matching stores found:', {
             productId: product.id,
             productName: product.name,
@@ -447,11 +487,8 @@ const createOrder = asyncHandler(async (req, res) => {
             userCountry: userCountryId,
             totalStores: product.storeQuantities.length,
             activeStores: activeStores.length,
-            regionMatchingStores: regionMatchingStores.length,
-            countryMatchingStores: countryMatchingStores.length,
-            regionStock,
-            countryStock,
-            totalActiveStock
+            totalActiveStock,
+            overrideApplied: userCountryId === 2
           });
           return res.status(400).json({ success: false, error });
         }
@@ -459,48 +496,35 @@ const createOrder = asyncHandler(async (req, res) => {
         // Ensure item.quantity is a number
         const requestedQuantity = Number(item.quantity);
         
-        // Calculate available stock in region and country
-        const regionStock = regionMatchingStores.reduce((sum, sq) => sum + Number(sq.quantity || 0), 0);
-        const countryStock = countryMatchingStores.reduce((sum, sq) => sum + Number(sq.quantity || 0), 0);
-        
         console.log('[Order Debug] Stock availability:', {
           productName: product.name,
           requestedQuantity,
-          regionStock,
-          countryStock,
           selectedStock: totalAvailableQuantity,
-          usingRegionStock: regionMatchingStores.length > 0
+          userCountry: userCountryId,
+          overrideApplied: userCountryId === 2
         });
         
-        // Check if we have sufficient stock in either region or country
+        // Check if we have sufficient stock
         if (isNaN(totalAvailableQuantity) || totalAvailableQuantity === 0 || totalAvailableQuantity < requestedQuantity) {
-          // If region stock is insufficient, check if country stock would be sufficient
-          if (countryStock >= requestedQuantity && regionMatchingStores.length > 0) {
-            // Switch to country-level stores if they have sufficient stock
-            console.log('[Order Debug] Switching to country-level stores due to insufficient region stock');
-            availableStoreQuantities = countryMatchingStores;
-            totalAvailableQuantity = countryStock;
+          let errorMsg = '';
+          if (userCountryId === 2) {
+            // Country 2 specific error message
+            errorMsg = `Insufficient stock for product ${product.name}. You requested ${requestedQuantity} units but only ${totalAvailableQuantity} units are available in your country. Country 2 users can only access stock from their own country.`;
           } else {
-            // Neither region nor country has sufficient stock
-            let errorMsg = '';
-            if (regionMatchingStores.length > 0) {
-              errorMsg = `Insufficient stock for product ${product.name}. You requested ${requestedQuantity} units but only ${regionStock} units are available in your region and ${countryStock} units in your country.`;
-            } else {
-              errorMsg = `Insufficient stock for product ${product.name}. You requested ${requestedQuantity} units but only ${countryStock} units are available in your country.`;
-            }
-            
-            console.log('[Order Debug] Insufficient stock:', {
-              productId: product.id,
-              productName: product.name,
-              requested: requestedQuantity,
-              regionStock,
-              countryStock,
-              regionStores: regionMatchingStores.length,
-              countryStores: countryMatchingStores.length
-            });
-            
-            return res.status(400).json({ success: false, error: errorMsg });
+            // Normal error message for other countries
+            errorMsg = `Insufficient stock for product ${product.name}. You requested ${requestedQuantity} units but only ${totalAvailableQuantity} units are available.`;
           }
+          
+          console.log('[Order Debug] Insufficient stock:', {
+            productId: product.id,
+            productName: product.name,
+            requested: requestedQuantity,
+            available: totalAvailableQuantity,
+            userCountry: userCountryId,
+            overrideApplied: userCountryId === 2
+          });
+          
+          return res.status(400).json({ success: false, error: errorMsg });
         }
         
         console.log('[Order Debug] ✅ Stock validation passed:', {

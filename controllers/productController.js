@@ -38,141 +38,176 @@ const getUserId = (req) => {
   return req.user.id;
 };
 
-// Helper function for retry logic
-const retryOperation = async (operation, maxRetries = 3, delay = 1000) => {
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    try {
-      return await operation();
-    } catch (error) {
-      if (attempt === maxRetries) {
-        throw error;
-      }
-      
-      // Check if it's a database connection error
-      if (error.code === 'P1001' || error.message.includes('Can\'t reach database server')) {
-        console.warn(`Database connection attempt ${attempt} failed, retrying in ${delay}ms...`);
-        await new Promise(resolve => setTimeout(resolve, delay));
-        delay *= 2; // Exponential backoff
-      } else {
-        throw error; // Don't retry for other types of errors
-      }
-    }
-  }
-};
-
-// Helper function to safely fetch store quantities with fallback
-const getStoreQuantitiesWithFallback = async (productId) => {
-  try {
-    return await retryOperation(async () => {
-      return await prisma.storeQuantity.findMany({
-        where: { productId: productId },
-        include: {
-          store: true
-        }
-      });
-    });
-  } catch (error) {
-    console.warn(`Failed to fetch store quantities for product ${productId}:`, error.message);
-    // Return empty array as fallback
-    return [];
-  }
-};
-
 // Get all products
 const getProducts = async (req, res) => {
   try {
     const userId = getUserId(req);
     const { page = 1, limit = 10 } = req.query;
 
-    // Get user country information for currency display with retry
-    let user;
-    try {
-      user = await retryOperation(async () => {
-        return await prisma.salesRep.findUnique({
-          where: { id: userId },
-          select: { 
-            countryId: true
+    console.log(`[DEBUG] Fetching products for user ID: ${userId}, page: ${page}, limit: ${limit}`);
+
+    // Get user country information for currency display
+    const user = await prisma.salesRep.findUnique({
+      where: { id: userId },
+      select: { 
+        countryId: true,
+        country: true,
+        name: true
+      }
+    });
+
+    console.log(`[DEBUG] User info:`, {
+      userId,
+      countryId: user?.countryId,
+      country: user?.country,
+      userName: user?.name
+    });
+
+    if (!user) {
+      console.error(`[ERROR] User not found for ID: ${userId}`);
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Get products with pagination
+    const products = await prisma.product.findMany({
+      include: {
+        client: true,
+        orderItems: true,
+        storeQuantities: true,
+        purchaseHistory: true
+      },
+      orderBy: {
+        name: 'asc',
+      },
+      skip: (parseInt(page) - 1) * parseInt(limit),
+      take: parseInt(limit),
+    });
+
+    console.log(`[DEBUG] Found ${products.length} products`);
+
+    // Get price options for the category_id of each product
+    const productsWithPriceOptions = await Promise.all(products.map(async (product, index) => {
+      console.log(`[DEBUG] Processing product ${index + 1}/${products.length}:`, {
+        productId: product.id,
+        productName: product.name,
+        categoryId: product.category_id
+      });
+
+      let categoryWithPriceOptions = null;
+      try {
+        categoryWithPriceOptions = await prisma.category.findUnique({
+          where: { id: product.category_id },
+          include: {
+            priceOptions: true
           }
         });
-      });
-    } catch (error) {
-      console.warn('Failed to fetch user country info, using default:', error.message);
-      user = { countryId: 1 }; // Default fallback
-    }
 
-    // Get products with pagination and retry
-    let products;
-    try {
-      products = await retryOperation(async () => {
-        return await prisma.product.findMany({
-          include: {
-            client: true,
-            orderItems: true,
-            storeQuantities: true,
-            purchaseHistory: true
-          },
-          orderBy: {
-            name: 'asc',
-          },
-          skip: (parseInt(page) - 1) * parseInt(limit),
-          take: parseInt(limit),
+        console.log(`[DEBUG] Category lookup for product ${product.id}:`, {
+          categoryId: product.category_id,
+          categoryFound: !!categoryWithPriceOptions,
+          categoryName: categoryWithPriceOptions?.name,
+          priceOptionsCount: categoryWithPriceOptions?.priceOptions?.length || 0
         });
-      });
-    } catch (error) {
-      console.error('Failed to fetch products after retries:', error);
-      return res.status(503).json({
-        error: 'Database temporarily unavailable',
-        message: 'Please try again later',
-        retryAfter: 30 // Suggest retry after 30 seconds
-      });
-    }
 
-    // Get price options for the category_id of each product with fallback
-    const productsWithPriceOptions = await Promise.all(products.map(async (product) => {
-      let categoryWithPriceOptions;
-      try {
-        categoryWithPriceOptions = await retryOperation(async () => {
-          return await prisma.category.findUnique({
-            where: { id: product.category_id },
-            include: {
-              priceOptions: true
-            }
-          });
-        });
+        if (categoryWithPriceOptions?.priceOptions) {
+          console.log(`[DEBUG] Price options for category ${product.category_id}:`, 
+            categoryWithPriceOptions.priceOptions.map(po => ({
+              id: po.id,
+              option: po.option,
+              value: po.value,
+              value_tzs: po.value_tzs,
+              value_ngn: po.value_ngn
+            }))
+          );
+        }
       } catch (error) {
-        console.warn(`Failed to fetch category for product ${product.id}:`, error.message);
-        categoryWithPriceOptions = { priceOptions: [] }; // Fallback
+        console.error(`[ERROR] Failed to fetch category for product ${product.id}:`, error);
+        categoryWithPriceOptions = null;
       }
 
-      // Get store quantities for this product with fallback
-      const storeQuantities = await getStoreQuantitiesWithFallback(product.id);
+      // Get store quantities for this product
+      let storeQuantities = [];
+      try {
+        storeQuantities = await prisma.storeQuantity.findMany({
+          where: { productId: product.id },
+          include: {
+            store: true
+          }
+        });
+
+        console.log(`[DEBUG] Store quantities for product ${product.id}:`, {
+          count: storeQuantities.length,
+          stores: storeQuantities.map(sq => ({
+            storeId: sq.storeId,
+            storeName: sq.store?.name,
+            quantity: sq.quantity
+          }))
+        });
+      } catch (error) {
+        console.error(`[ERROR] Failed to fetch store quantities for product ${product.id}:`, error);
+        // Continue with empty store quantities
+        storeQuantities = [];
+      }
 
       // Apply currency filtering based on user's country
+      const originalUnitCost = product.unit_cost;
+      const filteredUnitCost = getCurrencyValue(product, user.countryId, 'product');
+      
+      console.log(`[DEBUG] Currency filtering for product ${product.id}:`, {
+        countryId: user.countryId,
+        originalUnitCost,
+        filteredUnitCost,
+        currencyType: 'product'
+      });
+
+      const filteredPriceOptions = categoryWithPriceOptions?.priceOptions.map(priceOption => {
+        const originalValue = priceOption.value;
+        const filteredValue = getCurrencyValue(priceOption, user.countryId, 'priceOption');
+        
+        console.log(`[DEBUG] Price option currency filtering:`, {
+          priceOptionId: priceOption.id,
+          option: priceOption.option,
+          originalValue,
+          filteredValue,
+          countryId: user.countryId,
+          currencyType: 'priceOption'
+        });
+
+        return {
+          ...priceOption,
+          // Filter price option value based on country
+          value: filteredValue
+        };
+      }) || [];
+
       const filteredProduct = {
         ...product,
         // Filter product unit cost based on country
-        unit_cost: getCurrencyValue(product, user.countryId, 'product'),
-        priceOptions: categoryWithPriceOptions?.priceOptions.map(priceOption => ({
-          ...priceOption,
-          // Filter price option value based on country
-          value: getCurrencyValue(priceOption, user.countryId, 'priceOption')
-        })) || [],
+        unit_cost: filteredUnitCost,
+        priceOptions: filteredPriceOptions,
         storeQuantities: storeQuantities
       };
+
+      console.log(`[DEBUG] Final product ${product.id} data:`, {
+        productId: filteredProduct.id,
+        productName: filteredProduct.name,
+        unitCost: filteredProduct.unit_cost,
+        priceOptionsCount: filteredProduct.priceOptions.length,
+        storeQuantitiesCount: filteredProduct.storeQuantities.length
+      });
 
       return filteredProduct;
     }));
 
-    // Get total count for pagination with retry
-    let totalProducts;
-    try {
-      totalProducts = await retryOperation(async () => {
-        return await prisma.product.count();
-      });
-    } catch (error) {
-      console.warn('Failed to get total product count, using fallback:', error.message);
-      totalProducts = products.length; // Fallback to current page count
-    }
+    // Get total count for pagination
+    const totalProducts = await prisma.product.count();
+
+    console.log(`[DEBUG] Final response summary:`, {
+      productsReturned: productsWithPriceOptions.length,
+      totalProducts,
+      userCountryId: user.countryId,
+      userCountry: user.country
+    });
 
     res.status(200).json({
       success: true,
@@ -184,27 +219,12 @@ const getProducts = async (req, res) => {
         limit: parseInt(limit),
         totalPages: Math.ceil(totalProducts / parseInt(limit)),
       },
-      // Add metadata about any fallbacks used
-      metadata: {
-        hasFallbacks: productsWithPriceOptions.some(p => p.storeQuantities.length === 0),
-        databaseStatus: 'connected'
-      }
     });
   } catch (error) {
     console.error('Error fetching products:', error);
     
     if (error.message === 'User authentication required') {
       return res.status(401).json({ error: 'Authentication required' });
-    }
-    
-    // Handle specific database connection errors
-    if (error.code === 'P1001' || error.message.includes('Can\'t reach database server')) {
-      return res.status(503).json({
-        error: 'Database temporarily unavailable',
-        message: 'Please try again later',
-        retryAfter: 30,
-        details: process.env.NODE_ENV === 'development' ? error.message : undefined
-      });
     }
     
     res.status(500).json({ 
