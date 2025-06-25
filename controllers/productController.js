@@ -68,12 +68,27 @@ const getProducts = async (req, res) => {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    // Get products with pagination
+    // Get products with pagination (only those with stock in user's country)
     const products = await prisma.product.findMany({
+      where: {
+        storeQuantities: {
+          some: {
+            quantity: { gt: 0 },
+            store: {
+              countryId: user.countryId,
+              status: 0
+            }
+          }
+        }
+      },
       include: {
         client: true,
         orderItems: true,
-        storeQuantities: true,
+        storeQuantities: {
+          include: {
+            store: true
+          }
+        },
         purchaseHistory: true
       },
       orderBy: {
@@ -83,9 +98,9 @@ const getProducts = async (req, res) => {
       take: parseInt(limit),
     });
 
-    console.log(`[DEBUG] Found ${products.length} products`);
+    console.log(`[DEBUG] Found ${products.length} products with stock in country ${user.countryId}`);
 
-    // Get price options for the category_id of each product
+    // Get price options for the category_id of each product (only for products with stock)
     const productsWithPriceOptions = await Promise.all(products.map(async (product, index) => {
       console.log(`[DEBUG] Processing product ${index + 1}/${products.length}:`, {
         productId: product.id,
@@ -125,29 +140,26 @@ const getProducts = async (req, res) => {
         categoryWithPriceOptions = null;
       }
 
-      // Get store quantities for this product
-      let storeQuantities = [];
-      try {
-        storeQuantities = await prisma.storeQuantity.findMany({
-          where: { productId: product.id },
-          include: {
-            store: true
-          }
-        });
+      // Filter store quantities to only show stores in user's country with stock
+      const filteredStoreQuantities = product.storeQuantities.filter(sq => {
+        const store = sq.store;
+        const hasStock = sq.quantity > 0;
+        const isUserCountry = store.countryId === user.countryId;
+        const isActive = store.status === 0;
+        
+        return hasStock && isUserCountry && isActive;
+      });
 
-        console.log(`[DEBUG] Store quantities for product ${product.id}:`, {
-          count: storeQuantities.length,
-          stores: storeQuantities.map(sq => ({
-            storeId: sq.storeId,
-            storeName: sq.store?.name,
-            quantity: sq.quantity
-          }))
-        });
-      } catch (error) {
-        console.error(`[ERROR] Failed to fetch store quantities for product ${product.id}:`, error);
-        // Continue with empty store quantities
-        storeQuantities = [];
-      }
+      console.log(`[DEBUG] Filtered store quantities for product ${product.id}:`, {
+        originalCount: product.storeQuantities.length,
+        filteredCount: filteredStoreQuantities.length,
+        stores: filteredStoreQuantities.map(sq => ({
+          storeId: sq.storeId,
+          storeName: sq.store?.name,
+          quantity: sq.quantity,
+          countryId: sq.store.countryId
+        }))
+      });
 
       // Apply currency filtering based on user's country
       const originalUnitCost = product.unit_cost;
@@ -185,7 +197,7 @@ const getProducts = async (req, res) => {
         // Filter product unit cost based on country
         unit_cost: filteredUnitCost,
         priceOptions: filteredPriceOptions,
-        storeQuantities: storeQuantities
+        storeQuantities: filteredStoreQuantities
       };
 
       console.log(`[DEBUG] Final product ${product.id} data:`, {
@@ -199,14 +211,27 @@ const getProducts = async (req, res) => {
       return filteredProduct;
     }));
 
-    // Get total count for pagination
-    const totalProducts = await prisma.product.count();
+    // Get total count for pagination (only products with stock in user's country)
+    const totalProductsWithStock = await prisma.product.count({
+      where: {
+        storeQuantities: {
+          some: {
+            quantity: { gt: 0 },
+            store: {
+              countryId: user.countryId,
+              status: 0
+            }
+          }
+        }
+      }
+    });
 
     console.log(`[DEBUG] Final response summary:`, {
       productsReturned: productsWithPriceOptions.length,
-      totalProducts,
+      totalProductsWithStock,
       userCountryId: user.countryId,
-      userCountry: user.country
+      userCountry: user.country,
+      stockFilterApplied: true
     });
 
     res.status(200).json({
@@ -214,10 +239,10 @@ const getProducts = async (req, res) => {
       data: productsWithPriceOptions,
       userCountry: user, // Include user country info for frontend currency logic
       pagination: {
-        total: totalProducts,
+        total: totalProductsWithStock,
         page: parseInt(page),
         limit: parseInt(limit),
-        totalPages: Math.ceil(totalProducts / parseInt(limit)),
+        totalPages: Math.ceil(totalProductsWithStock / parseInt(limit)),
       },
     });
   } catch (error) {
