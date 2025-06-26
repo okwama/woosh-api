@@ -344,6 +344,7 @@ model Clients {
   visibilityReports  VisibilityReport[]
 
   @@index([countryId], map: "Clients_countryId_fkey")
+  @@index([countryId, status, route_id])
 }
 
 model ClientPayment {
@@ -492,9 +493,8 @@ model JourneyPlan {
   reports            Report[]
 
   @@index([clientId])
-  @@index([date])
-  @@index([userId, date])
   @@index([routeId], map: "JourneyPlan_routeId_fkey")
+  @@index([userId])
 }
 
 model NoticeBoard {
@@ -863,6 +863,7 @@ model account_update {
   id               Int     @id @default(autoincrement())
   account_id       Int
   account_type     Int
+  account_category Int
   reference        String  @db.VarChar(250)
   amount           Decimal @db.Decimal(11, 2)
   amount_in        Decimal @db.Decimal(11, 2)
@@ -994,6 +995,7 @@ model clients_g {
   visibility_reports_g    visibility_reports_g[]
 
   @@index([countryId], map: "Clients_g_countryId_fkey")
+  @@index([countryId, status, route_id])
 }
 
 model contracts {
@@ -1551,8 +1553,6 @@ model sales_reps_g {
   route_name_update       String                    @db.VarChar(100)
   visits_targets          Int
   new_clients             Int
-  vapes_targets           Int
-  pouches_targets         Int
   role                    String?                   @default("USER")
   manager_type            Int
   status                  Int?                      @default(0)
@@ -1911,8 +1911,8 @@ model SalesTargets {
   vapes_retail   Int?     @default(0)
   pouches_retail Int?     @default(0)
   new_ka         Int?     @default(0)
-  vapes_ka       Int?
-  pouches_ka     Int
+  vapes_ka       Int?     @default(0)
+  pouches_ka     Int?     @default(0)
   SalesRep       SalesRep @relation(fields: [sales_rep_id], references: [id], onUpdate: Restrict, map: "SalesTargets_ibfk_1")
 
   @@unique([sales_rep_id, month], map: "sales_rep_id")
@@ -1939,10 +1939,12 @@ model company_assets {
 }
 
 model depreciation_entries {
-  id             Int             @id
+  id             Int             @id @default(autoincrement())
   asset_id       Int?
   amount         Decimal?        @db.Decimal(10, 2)
   date_posted    DateTime?       @db.Date
+  notes          String          @db.Text
+  posted_by      Int
   company_assets company_assets? @relation(fields: [asset_id], references: [id], onDelete: Restrict, onUpdate: Restrict, map: "depreciation_entries_ibfk_1")
 
   @@index([asset_id], map: "asset_id")

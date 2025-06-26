@@ -1,2 +1,10 @@
 node_modules/
 /.env
+/docs/auth_implementation_guide.md
+/docs/authentication_system.md
+/docs/business_analytics_api.md
+/docs/country_specific_currency_display.md
+/docs/country_specific_tax_pin_labels.md
+/docs/stock_validation_and_country_overrides.md
+/test_currency_debug.js
+/test_stock_filtering.js
