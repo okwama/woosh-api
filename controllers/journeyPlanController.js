@@ -140,6 +140,11 @@ const getJourneyPlans = async (req, res) => {
   try {
     const salesRepId = getSalesRepId(req);
 
+    // Pagination
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20; // Default limit to 20
+    const skip = (page - 1) * limit;
+
     // Get timezone from query params or use Nairobi as default
     const timezone = req.query.timezone || 'Africa/Nairobi';
     
@@ -154,19 +159,23 @@ const getJourneyPlans = async (req, res) => {
     console.log(`Fetching journey plans for sales rep ${salesRepId} on ${today.toISOString().split('T')[0]} in timezone ${timezone}`);
     console.log(`Date range: ${today.toISOString()} to ${tomorrow.toISOString()}`);
 
-    const journeyPlans = await prisma.journeyPlan.findMany({
-      where: {
-        userId: salesRepId,
-        date: {
-          gte: today,
-          lt: tomorrow,
-        },
-        client: {
-          id: {
-            gt: 0,
-          },
+    const whereClause = {
+      userId: salesRepId,
+      date: {
+        gte: today,
+        lt: tomorrow,
+      },
+      client: {
+        id: {
+          gt: 0,
         },
       },
+    };
+
+    const journeyPlans = await prisma.journeyPlan.findMany({
+      where: whereClause,
+      skip,
+      take: limit,
       include: {
         client: true,
       },
@@ -175,14 +184,25 @@ const getJourneyPlans = async (req, res) => {
       },
     });
 
-    console.log(`Found ${journeyPlans.length} journey plans for today`);
+    const totalJourneyPlans = await prisma.journeyPlan.count({ where: whereClause });
+
+    console.log(`Found ${journeyPlans.length} of ${totalJourneyPlans} journey plans for today`);
     
     // Log the dates of found journey plans for debugging
     if (journeyPlans.length > 0) {
       console.log('Journey plan dates:', journeyPlans.map(jp => jp.date.toISOString().split('T')[0]));
     }
     
-    res.status(200).json({ success: true, data: journeyPlans });
+    res.status(200).json({ 
+      success: true, 
+      data: journeyPlans,
+      pagination: {
+        total: totalJourneyPlans,
+        page,
+        limit,
+        totalPages: Math.ceil(totalJourneyPlans / limit),
+      }
+    });
   } catch (error) {
     console.error('Error fetching journey plans:', error);
     

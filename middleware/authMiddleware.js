@@ -186,14 +186,18 @@ const authenticateToken = async (req, res, next) => {
 
     // Update last used timestamp if we have a token record and database is available
     if (tokenRecord && dbAvailable) {
-      try {
-        await prisma.token.update({
-          where: { id: tokenRecord.id },
-          data: { lastUsedAt: new Date() }
-        });
-      } catch (updateError) {
-        console.warn('Failed to update token last used:', updateError.message);
-      }
+      // Non-blocking update
+      (async () => {
+        try {
+          await prisma.token.update({
+            where: { id: tokenRecord.id },
+            data: { lastUsedAt: new Date() }
+          });
+        } catch (updateError) {
+          // Log the full error for more insight
+          console.error('Failed to update token last used:', updateError);
+        }
+      })();
     }
 
     // Set security headers

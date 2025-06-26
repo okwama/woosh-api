@@ -492,7 +492,8 @@ model JourneyPlan {
   reports            Report[]
 
   @@index([clientId])
-  @@index([userId])
+  @@index([date])
+  @@index([userId, date])
   @@index([routeId], map: "JourneyPlan_routeId_fkey")
 }
 
@@ -1550,6 +1551,8 @@ model sales_reps_g {
   route_name_update       String                    @db.VarChar(100)
   visits_targets          Int
   new_clients             Int
+  vapes_targets           Int
+  pouches_targets         Int
   role                    String?                   @default("USER")
   manager_type            Int
   status                  Int?                      @default(0)
@@ -1908,8 +1911,8 @@ model SalesTargets {
   vapes_retail   Int?     @default(0)
   pouches_retail Int?     @default(0)
   new_ka         Int?     @default(0)
-  vapes_ka       Int?     @default(0)
-  pouches_ka     Int?     @default(0)
+  vapes_ka       Int?
+  pouches_ka     Int
   SalesRep       SalesRep @relation(fields: [sales_rep_id], references: [id], onUpdate: Restrict, map: "SalesTargets_ibfk_1")
 
   @@unique([sales_rep_id, month], map: "sales_rep_id")

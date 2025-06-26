@@ -38,7 +38,19 @@ const getUserId = (req) => {
   return req.user.id;
 };
 
-// Get all products
+/**
+ * Get products with stock filtering and country-specific overrides
+ * 
+ * This function implements a sophisticated product fetching system that:
+ * 1. Filters products based on stock availability in user's country
+ * 2. Applies country-specific currency filtering
+ * 3. Handles price options with country-specific values
+ * 4. Provides accurate pagination for filtered results
+ * 
+ * @param {Object} req - Express request object
+ * @param {Object} res - Express response object
+ * @returns {Object} JSON response with filtered products and pagination
+ */
 const getProducts = async (req, res) => {
   try {
     const userId = getUserId(req);
@@ -46,7 +58,7 @@ const getProducts = async (req, res) => {
 
     console.log(`[DEBUG] Fetching products for user ID: ${userId}, page: ${page}, limit: ${limit}`);
 
-    // Get user country information for currency display
+    // Get user country information for currency display and stock filtering
     const user = await prisma.salesRep.findUnique({
       where: { id: userId },
       select: { 
@@ -68,15 +80,20 @@ const getProducts = async (req, res) => {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    // Get products with pagination (only those with stock in user's country)
+    // 🎯 STOCK FILTERING: Only fetch products with stock in user's country
+    // This is a database-level filter for better performance
+    // Criteria:
+    // - quantity > 0 (has stock)
+    // - store.countryId matches user's country
+    // - store.status = 0 (active store)
     const products = await prisma.product.findMany({
       where: {
         storeQuantities: {
           some: {
-            quantity: { gt: 0 },
+            quantity: { gt: 0 },           // Has stock
             store: {
-              countryId: user.countryId,
-              status: 0
+              countryId: user.countryId,   // In user's country
+              status: 0                    // Active store
             }
           }
         }
@@ -100,7 +117,52 @@ const getProducts = async (req, res) => {
 
     console.log(`[DEBUG] Found ${products.length} products with stock in country ${user.countryId}`);
 
-    // Get price options for the category_id of each product (only for products with stock)
+    // 🔍 DEBUG: Let's also fetch ALL products to see what's being filtered out
+    const allProducts = await prisma.product.findMany({
+      include: {
+        storeQuantities: {
+          include: {
+            store: true
+          }
+        }
+      },
+      orderBy: {
+        name: 'asc',
+      },
+      skip: (parseInt(page) - 1) * parseInt(limit),
+      take: parseInt(limit),
+    });
+
+    console.log(`[DEBUG] Total products in database: ${allProducts.length}`);
+    
+    // Debug each product's stock situation
+    allProducts.forEach(product => {
+      const countryStores = product.storeQuantities.filter(sq => 
+        sq.store.countryId === user.countryId
+      );
+      const countryStoresWithStock = countryStores.filter(sq => 
+        sq.quantity > 0 && sq.store.status === 0
+      );
+      
+      console.log(`[DEBUG] Product ${product.id} (${product.name}):`, {
+        productId: product.id,
+        productName: product.name,
+        totalStores: product.storeQuantities.length,
+        countryStores: countryStores.length,
+        countryStoresWithStock: countryStoresWithStock.length,
+        stockDetails: countryStores.map(sq => ({
+          storeId: sq.storeId,
+          storeName: sq.store.name,
+          quantity: sq.quantity,
+          countryId: sq.store.countryId,
+          status: sq.store.status,
+          isActive: sq.store.status === 0,
+          hasStock: sq.quantity > 0
+        }))
+      });
+    });
+
+    // Process each product to add price options and apply currency filtering
     const productsWithPriceOptions = await Promise.all(products.map(async (product, index) => {
       console.log(`[DEBUG] Processing product ${index + 1}/${products.length}:`, {
         productId: product.id,
@@ -108,6 +170,7 @@ const getProducts = async (req, res) => {
         categoryId: product.category_id
       });
 
+      // 📋 CATEGORY & PRICE OPTIONS: Fetch category with price options
       let categoryWithPriceOptions = null;
       try {
         categoryWithPriceOptions = await prisma.category.findUnique({
@@ -140,12 +203,13 @@ const getProducts = async (req, res) => {
         categoryWithPriceOptions = null;
       }
 
-      // Filter store quantities to only show stores in user's country with stock
+      // 🏪 STORE QUANTITIES FILTERING: Only show stores with stock in user's country
+      // This filters the already-fetched store quantities to only show relevant stores
       const filteredStoreQuantities = product.storeQuantities.filter(sq => {
         const store = sq.store;
-        const hasStock = sq.quantity > 0;
-        const isUserCountry = store.countryId === user.countryId;
-        const isActive = store.status === 0;
+        const hasStock = sq.quantity > 0;                    // Has stock
+        const isUserCountry = store.countryId === user.countryId;  // In user's country
+        const isActive = store.status === 0;                 // Active store
         
         return hasStock && isUserCountry && isActive;
       });
@@ -161,7 +225,8 @@ const getProducts = async (req, res) => {
         }))
       });
 
-      // Apply currency filtering based on user's country
+      // 💰 CURRENCY FILTERING: Apply country-specific currency conversion
+      // This converts product unit costs based on user's country
       const originalUnitCost = product.unit_cost;
       const filteredUnitCost = getCurrencyValue(product, user.countryId, 'product');
       
@@ -172,6 +237,8 @@ const getProducts = async (req, res) => {
         currencyType: 'product'
       });
 
+      // 💰 PRICE OPTIONS CURRENCY FILTERING: Convert price option values
+      // This applies country-specific currency conversion to each price option
       const filteredPriceOptions = categoryWithPriceOptions?.priceOptions.map(priceOption => {
         const originalValue = priceOption.value;
         const filteredValue = getCurrencyValue(priceOption, user.countryId, 'priceOption');
@@ -192,12 +259,13 @@ const getProducts = async (req, res) => {
         };
       }) || [];
 
+      // 🎯 FINAL PRODUCT OBJECT: Combine all filtered data
       const filteredProduct = {
         ...product,
         // Filter product unit cost based on country
         unit_cost: filteredUnitCost,
         priceOptions: filteredPriceOptions,
-        storeQuantities: filteredStoreQuantities
+        storeQuantities: filteredStoreQuantities  // Only stores with stock in user's country
       };
 
       console.log(`[DEBUG] Final product ${product.id} data:`, {
@@ -211,7 +279,8 @@ const getProducts = async (req, res) => {
       return filteredProduct;
     }));
 
-    // Get total count for pagination (only products with stock in user's country)
+    // 📊 PAGINATION: Get accurate total count for filtered products
+    // This ensures pagination works correctly with stock filtering
     const totalProductsWithStock = await prisma.product.count({
       where: {
         storeQuantities: {
@@ -234,6 +303,7 @@ const getProducts = async (req, res) => {
       stockFilterApplied: true
     });
 
+    // 🚀 RESPONSE: Return filtered products with accurate pagination
     res.status(200).json({
       success: true,
       data: productsWithPriceOptions,

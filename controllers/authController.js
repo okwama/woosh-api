@@ -149,34 +149,35 @@ const login = async (req, res) => {
 
     console.log('Login attempt for phoneNumber:', phoneNumber);
 
-    // Use a single transaction for all database operations
-    const result = await prisma.$transaction(async (tx) => {
-      // Check if user exists
-      const salesRep = await tx.salesRep.findFirst({
-        where: { phoneNumber },
-        include: {
-          countryRelation: true
-        }
-      });
-
-      console.log('SalesRep found:', salesRep ? 'Yes' : 'No');
-
-      if (!salesRep) {
-        throw new Error('Invalid phone number or password');
+    // Step 1: Find the user outside of a transaction
+    const salesRep = await prisma.salesRep.findFirst({
+      where: { phoneNumber },
+      include: {
+        countryRelation: true
       }
+    });
 
-      // Check if account is deactivated
-      if (salesRep.status === 1) {
-        throw new Error('Account deactivated. Please contact administrator.');
-      }
+    console.log('SalesRep found:', salesRep ? 'Yes' : 'No');
 
-      const isPasswordValid = await bcrypt.compare(password, salesRep.password);
-      console.log('Password valid:', isPasswordValid ? 'Yes' : 'No');
+    if (!salesRep) {
+      return res.status(401).json({ success: false, message: 'Invalid phone number or password' });
+    }
 
-      if (!isPasswordValid) {
-        throw new Error('Invalid phone number or password');
-      }
+    // Step 2: Check if account is deactivated
+    if (salesRep.status === 1) {
+      return res.status(403).json({ success: false, message: 'Account deactivated. Please contact administrator.' });
+    }
 
+    // Step 3: Validate password
+    const isPasswordValid = await bcrypt.compare(password, salesRep.password);
+    console.log('Password valid:', isPasswordValid ? 'Yes' : 'No');
+
+    if (!isPasswordValid) {
+      return res.status(401).json({ success: false, message: 'Invalid phone number or password' });
+    }
+
+    // Step 4: Use a transaction only for creating tokens
+    const { accessToken, refreshToken } = await prisma.$transaction(async (tx) => {
       // Generate access token (short-lived - 8 hours)
       const accessTokenPayload = {
         userId: salesRep.id,
@@ -218,56 +219,36 @@ const login = async (req, res) => {
 
       console.log('Tokens stored in database');
 
-      return {
-        salesRep,
-        accessToken,
-        refreshToken
-      };
+      return { accessToken, refreshToken };
     });
 
     // Return user and tokens
     res.json({
       success: true,
       salesRep: {
-        id: result.salesRep.id,
-        name: result.salesRep.name,
-        phoneNumber: result.salesRep.phoneNumber,
-        role: result.salesRep.role,
-        email: result.salesRep.email,
-        photoUrl: result.salesRep.photoUrl,
-        region: result.salesRep.region,
-        region_id: result.salesRep.region_id,
-        route_id: result.salesRep.route_id,
-        countryId: result.salesRep.countryId,
-        country: result.salesRep.countryRelation
+        id: salesRep.id,
+        name: salesRep.name,
+        phoneNumber: salesRep.phoneNumber,
+        role: salesRep.role,
+        email: salesRep.email,
+        photoUrl: salesRep.photoUrl,
+        region: salesRep.region,
+        region_id: salesRep.region_id,
+        route_id: salesRep.route_id,
+        countryId: salesRep.countryId,
+        country: salesRep.countryRelation
       },
-      accessToken: result.accessToken,
-      refreshToken: result.refreshToken,
+      accessToken,
+      refreshToken,
       expiresIn: 8 * 60 * 60 // 8 hours in seconds
     });
 
   } catch (error) {
     console.error('Login error:', error);
-    
-    // Handle specific error types
-    if (error.message === 'Invalid phone number or password') {
-      return res.status(401).json({
-        success: false,
-        error: 'Invalid phone number or password'
-      });
-    }
-    
-    if (error.message === 'Account deactivated. Please contact administrator.') {
-      return res.status(403).json({
-        success: false,
-        error: 'Account deactivated. Please contact administrator.'
-      });
-    }
-
-    res.status(500).json({
-      success: false,
-      error: 'Login failed',
-      details: error.message
+    res.status(500).json({ 
+        success: false, 
+        message: 'Internal server error',
+        details: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 };

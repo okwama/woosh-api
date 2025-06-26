@@ -313,11 +313,14 @@ const createOrder = asyncHandler(async (req, res) => {
           }))
         });
 
-        // 🎯 SIMPLE OVERRIDE: Country 2 users can only access their own country's stores
+        // 🎯 COUNTRY-SPECIFIC STOCK VALIDATION OVERRIDE
+        // This implements different stock validation rules based on user's country
         let availableStoreQuantities = [];
         
         if (userCountryId === 2) {
-          // Country 2 override: Only allow stores from user's country
+          // 🇹🇿 COUNTRY 2 OVERRIDE (Tanzania): Restrict to user's country only
+          // This prevents country 2 users from accessing stock from other countries
+          // This is a business rule to ensure country-specific stock management
           console.log('[Order Debug] 🎯 Country 2 override activated - restricting to user country only');
           
           availableStoreQuantities = activeStores.filter(sq => {
@@ -341,10 +344,13 @@ const createOrder = asyncHandler(async (req, res) => {
           });
           
         } else {
-          // Normal logic for other countries: region first, then country fallback
+          // 🌍 NORMAL LOGIC: For other countries (1, 3, etc.)
+          // Uses region-first, then country fallback approach
+          // This allows flexible stock access for non-restricted countries
           console.log('[Order Debug] Using normal stock validation logic for country:', userCountryId);
           
           // Second filter: Get region-matching stores (primary preference)
+          // Users prefer to get stock from their own region first
           const regionMatchingStores = activeStores.filter(sq => {
             const store = sq.store;
             const storeRegionId = store.regionId || store.region_id;
@@ -363,6 +369,7 @@ const createOrder = asyncHandler(async (req, res) => {
           });
           
           // Third filter: Get country-level stores (fallback)
+          // If no region stores, fall back to country-level stores
           const countryMatchingStores = activeStores.filter(sq => {
             const store = sq.store;
             const storeRegionId = store.regionId || store.region_id;
