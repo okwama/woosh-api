@@ -19,6 +19,7 @@ const {
   healthCheck, 
   rateLimitMiddleware 
 } = require('./middleware/resilienceMiddleware');
+const { checkDatabaseHealth } = require('./lib/connectionManager');
 
 // Debug cron package
 console.log('📦 Cron package loaded:', cron ? 'Yes' : 'No');
@@ -146,6 +147,23 @@ app.get('/', (req, res) => res.json({ message: 'Welcome to the API' }));
 
 // Health check endpoint
 app.get('/health', healthCheck);
+
+// Database health check endpoint
+app.get('/health/database', async (req, res) => {
+  try {
+    const dbHealth = await checkDatabaseHealth();
+    res.json({
+      database: dbHealth,
+      timestamp: new Date().toISOString(),
+      uptime: process.uptime()
+    });
+  } catch (error) {
+    res.status(500).json({
+      database: { status: 'error', message: error.message },
+      timestamp: new Date().toISOString()
+    });
+  }
+});
 
 // Emergency mode endpoints (⚠️ RISKY - Use with caution)
 app.get('/emergency/status', (req, res) => {

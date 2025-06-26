@@ -3,6 +3,7 @@ const multer = require('multer');
 const path = require('path');
 const { uploadFile } = require('../lib/uploadService');
 const { retryOperation } = require('../lib/retryService');
+const { withConnectionRetry } = require('../lib/connectionManager');
 
 // Configure multer for memory storage
 const upload = multer({
@@ -332,94 +333,98 @@ const updateJourneyPlan = async (req, res) => {
       let updatedJourneyPlan;
       try {
         updatedJourneyPlan = await retryOperation(async () => {
-          return await prisma.$transaction(async (tx) => {
-            // Get client information for location fallback (only if needed)
-            let client = null;
-            if (clientId && (checkoutLatitude === undefined || checkoutLongitude === undefined)) {
-              client = await tx.clients.findUnique({
-                where: { id: parseInt(clientId) },
-                select: { latitude: true, longitude: true } // Only select what we need
+          return await withConnectionRetry(async () => {
+            return await prisma.$transaction(async (tx) => {
+              // Get client information for location fallback (only if needed)
+              let client = null;
+              if (clientId && (checkoutLatitude === undefined || checkoutLongitude === undefined)) {
+                client = await tx.clients.findUnique({
+                  where: { id: parseInt(clientId) },
+                  select: { latitude: true, longitude: true } // Only select what we need
+                });
+              }
+
+              // Determine checkout location with fallback logic
+              let finalCheckoutLat = 0;
+              let finalCheckoutLng = 0;
+
+              if (checkoutLatitude !== undefined && checkoutLongitude !== undefined) {
+                // Use user's GPS coordinates
+                finalCheckoutLat = parseFloat(checkoutLatitude);
+                finalCheckoutLng = parseFloat(checkoutLongitude);
+              } else if (client && client.latitude && client.longitude) {
+                // Use client's stored location as fallback
+                finalCheckoutLat = parseFloat(client.latitude);
+                finalCheckoutLng = parseFloat(client.longitude);
+              }
+              // else stays 0,0 (default)
+
+              // Determine checkout time with fallback
+              let finalCheckoutTime = null;
+              if (checkoutTime) {
+                finalCheckoutTime = new Date(checkoutTime);
+              } else if (status === 'completed') {
+                // For checkout, use current time if not provided
+                finalCheckoutTime = new Date();
+              }
+
+              // Update the journey plan with fail-safe data
+              const updated = await tx.journeyPlan.update({
+                where: { id: parseInt(journeyId) },
+                data: {
+                  // Priority 1: Status update (most important)
+                  status: status !== undefined ? STATUS_MAP[status] : existingJourneyPlan.status,
+                  
+                  // Check-in data (only if not checkout)
+                  ...(status !== 'completed' && {
+                    checkInTime: checkInTime ? new Date(checkInTime) : undefined,
+                    latitude: latitude !== undefined ? parseFloat(latitude) : undefined,
+                    longitude: longitude !== undefined ? parseFloat(longitude) : undefined,
+                    imageUrl: finalImageUrl,
+                  }),
+                  
+                  // Checkout data (only if checkout)
+                  ...(status === 'completed' && {
+                    checkoutTime: finalCheckoutTime,
+                    checkoutLatitude: finalCheckoutLat,
+                    checkoutLongitude: finalCheckoutLng,
+                  }),
+                  
+                  // Common data
+                  notes: notes,
+                  showUpdateLocation: showUpdateLocation !== undefined ? Boolean(showUpdateLocation) : undefined,
+                  client: clientId ? {
+                    connect: { id: parseInt(clientId) }
+                  } : undefined
+                },
+                include: {
+                  client: true,
+                },
               });
-            }
 
-            // Determine checkout location with fallback logic
-            let finalCheckoutLat = 0;
-            let finalCheckoutLng = 0;
-
-            if (checkoutLatitude !== undefined && checkoutLongitude !== undefined) {
-              // Use user's GPS coordinates
-              finalCheckoutLat = parseFloat(checkoutLatitude);
-              finalCheckoutLng = parseFloat(checkoutLongitude);
-            } else if (client && client.latitude && client.longitude) {
-              // Use client's stored location as fallback
-              finalCheckoutLat = parseFloat(client.latitude);
-              finalCheckoutLng = parseFloat(client.longitude);
-            }
-            // else stays 0,0 (default)
-
-            // Determine checkout time with fallback
-            let finalCheckoutTime = null;
-            if (checkoutTime) {
-              finalCheckoutTime = new Date(checkoutTime);
-            } else if (status === 'completed') {
-              // For checkout, use current time if not provided
-              finalCheckoutTime = new Date();
-            }
-
-            // Update the journey plan with fail-safe data
-            const updated = await tx.journeyPlan.update({
-              where: { id: parseInt(journeyId) },
-              data: {
-                // Priority 1: Status update (most important)
-                status: status !== undefined ? STATUS_MAP[status] : existingJourneyPlan.status,
-                
-                // Check-in data (only if not checkout)
-                ...(status !== 'completed' && {
-                  checkInTime: checkInTime ? new Date(checkInTime) : undefined,
-                  latitude: latitude !== undefined ? parseFloat(latitude) : undefined,
-                  longitude: longitude !== undefined ? parseFloat(longitude) : undefined,
-                  imageUrl: finalImageUrl,
-                }),
-                
-                // Checkout data (only if checkout)
-                ...(status === 'completed' && {
-                  checkoutTime: finalCheckoutTime,
-                  checkoutLatitude: finalCheckoutLat,
-                  checkoutLongitude: finalCheckoutLng,
-                }),
-                
-                // Common data
-                notes: notes,
-                showUpdateLocation: showUpdateLocation !== undefined ? Boolean(showUpdateLocation) : undefined,
-                client: clientId ? {
-                  connect: { id: parseInt(clientId) }
-                } : undefined
-              },
-              include: {
-                client: true,
-              },
+              return updated;
+            }, {
+              maxWait: 10000, // 10 second max wait
+              timeout: 30000  // 30 second timeout (increased from 10)
             });
-
-            return updated;
-          }, {
-            maxWait: 10000, // 10 second max wait
-            timeout: 30000  // 30 second timeout (increased from 10)
-          });
+          }, 'journey-plan-update');
         }, 3, 1000); // Retry 3 times with 1 second delay
       } catch (transactionError) {
         console.error('Transaction failed after retries, using fallback update:', transactionError.message);
         
-        // Fallback: Update only the critical status field
-        updatedJourneyPlan = await prisma.journeyPlan.update({
-          where: { id: parseInt(journeyId) },
-          data: {
-            // Only update the most critical field - status
-            status: status !== undefined ? STATUS_MAP[status] : existingJourneyPlan.status,
-          },
-          include: {
-            client: true,
-          },
-        });
+        // Fallback: Update only the critical status field with connection retry
+        updatedJourneyPlan = await withConnectionRetry(async () => {
+          return await prisma.journeyPlan.update({
+            where: { id: parseInt(journeyId) },
+            data: {
+              // Only update the most critical field - status
+              status: status !== undefined ? STATUS_MAP[status] : existingJourneyPlan.status,
+            },
+            include: {
+              client: true,
+            },
+          });
+        }, 'journey-plan-fallback');
         
         console.warn('Used fallback update - only status was updated due to transaction failure');
       }

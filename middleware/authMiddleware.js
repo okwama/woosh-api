@@ -1,5 +1,6 @@
 const jwt = require('jsonwebtoken');
 const prisma = require('../lib/prisma');
+const { withConnectionRetry } = require('../lib/connectionManager');
 
 // Circuit breaker for database operations
 class CircuitBreaker {
@@ -530,13 +531,15 @@ const authenticateToken = async (req, res, next) => {
         async () => {
           return await withGracefulDegradation(
             async () => {
-              return await prisma.salesRep.findUnique({
-                where: { id: decoded.userId },
-                include: {
-                  Manager: true,
-                  countryRelation: true
-                }
-              });
+              return await withConnectionRetry(async () => {
+                return await prisma.salesRep.findUnique({
+                  where: { id: decoded.userId },
+                  include: {
+                    Manager: true,
+                    countryRelation: true
+                  }
+                });
+              }, 'user-fetch');
             },
             async () => {
               // Fallback: return minimal user info from JWT
