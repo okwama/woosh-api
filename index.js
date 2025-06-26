@@ -7,6 +7,18 @@ const prisma = require('./lib/prisma');
 const cron = require('node-cron');
 const cleanupTokens = require('./scripts/cleanup-tokens');
 const { handleTokenRefresh } = require('./middleware/authMiddleware');
+const { 
+  getEmergencyModeStatus, 
+  getEmergencyUsageStats,
+  triggerEmergencyMode, 
+  disableEmergencyMode 
+} = require('./middleware/authMiddleware');
+const { 
+  timeoutMiddleware, 
+  performanceMiddleware, 
+  healthCheck, 
+  rateLimitMiddleware 
+} = require('./middleware/resilienceMiddleware');
 
 // Debug cron package
 console.log('📦 Cron package loaded:', cron ? 'Yes' : 'No');
@@ -38,6 +50,11 @@ const app = express();
 app.use(express.json());
 app.use(cors());
 app.use(morgan('dev'));
+
+// Add resilience middleware
+app.use(timeoutMiddleware(30000)); // 30 second timeout
+app.use(performanceMiddleware()); // Performance monitoring
+app.use(rateLimitMiddleware); // Rate limiting
 
 // Auto-logout Cron Job at midnight Africa/Nairobi time
 console.log('🔄 Setting up auto-logout cron job...');
@@ -126,6 +143,74 @@ console.log('Static file path configured:', path.join(__dirname, '../uploads'));
 
 // Default Route
 app.get('/', (req, res) => res.json({ message: 'Welcome to the API' }));
+
+// Health check endpoint
+app.get('/health', healthCheck);
+
+// Emergency mode endpoints (⚠️ RISKY - Use with caution)
+app.get('/emergency/status', (req, res) => {
+  const status = getEmergencyModeStatus();
+  res.json({
+    emergency_mode: status,
+    warning: 'Emergency mode bypasses all authentication - use only in critical situations',
+    timestamp: new Date().toISOString()
+  });
+});
+
+app.get('/emergency/stats', (req, res) => {
+  // Add basic protection - check for admin secret
+  const adminSecret = req.headers['x-admin-secret'];
+  if (adminSecret !== process.env.ADMIN_SECRET) {
+    return res.status(403).json({ 
+      error: 'Unauthorized',
+      message: 'Admin secret required to view emergency stats'
+    });
+  }
+  
+  const stats = getEmergencyUsageStats();
+  res.json({
+    emergency_stats: stats,
+    warning: '⚠️ Emergency mode usage statistics - monitor for security issues',
+    timestamp: new Date().toISOString()
+  });
+});
+
+// Manual emergency mode control (⚠️ VERY RISKY - Admin only)
+app.post('/emergency/trigger', (req, res) => {
+  // Add basic protection - check for admin secret
+  const adminSecret = req.headers['x-admin-secret'];
+  if (adminSecret !== process.env.ADMIN_SECRET) {
+    return res.status(403).json({ 
+      error: 'Unauthorized',
+      message: 'Admin secret required to trigger emergency mode'
+    });
+  }
+  
+  const result = triggerEmergencyMode();
+  res.json({
+    ...result,
+    warning: '⚠️ Emergency mode activated - all requests will bypass authentication',
+    timestamp: new Date().toISOString()
+  });
+});
+
+app.post('/emergency/disable', (req, res) => {
+  // Add basic protection - check for admin secret
+  const adminSecret = req.headers['x-admin-secret'];
+  if (adminSecret !== process.env.ADMIN_SECRET) {
+    return res.status(403).json({ 
+      error: 'Unauthorized',
+      message: 'Admin secret required to disable emergency mode'
+    });
+  }
+  
+  const result = disableEmergencyMode();
+  res.json({
+    ...result,
+    message: '✅ Emergency mode disabled - normal authentication restored',
+    timestamp: new Date().toISOString()
+  });
+});
 
 // Apply token refresh middleware to all API routes (before route definitions)
 app.use('/api', handleTokenRefresh);

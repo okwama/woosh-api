@@ -2,6 +2,7 @@ const prisma = require('../lib/prisma');
 const multer = require('multer');
 const path = require('path');
 const { uploadFile } = require('../lib/uploadService');
+const { retryOperation } = require('../lib/retryService');
 
 // Configure multer for memory storage
 const upload = multer({
@@ -52,33 +53,6 @@ const createJourneyPlan = async (req, res) => {
       return res.status(404).json({ error: 'Client not found' });
     }
 
-    // If routeId is provided, validate and update client's route
-    if (routeId) {
-      const route = await prisma.routes.findUnique({
-        where: { id: parseInt(routeId) },
-      });
-
-      if (!route) {
-        return res.status(404).json({ error: 'Route not found' });
-      }
-
-      // Update client's route
-      await prisma.clients.update({
-        where: { id: parseInt(clientId) },
-        data: {
-          route_id_update: parseInt(routeId),
-          route_name_update: route.name,
-        },
-      });
-      await prisma.salesRep.update({
-        where: { id: salesRepId },
-        data: {
-          route_id_update: parseInt(routeId),
-          route_name_update: route.name,
-        },
-      });
-    }
-
     // Parse the date from ISO string
     let journeyDate;
     try {
@@ -105,22 +79,56 @@ const createJourneyPlan = async (req, res) => {
       minute: '2-digit'
     });
 
-    // Create the journey plan
-    const journeyPlan = await prisma.journeyPlan.create({
-      data: {
-        date: journeyDate,
-        time: time,
-        userId: salesRepId,
-        clientId: parseInt(clientId),
-        status: 0,
-        notes: notes,
-        showUpdateLocation: showUpdateLocation ?? true,
-        routeId: routeId ? parseInt(routeId) : null,
-      },
-      include: {
-        client: true,
-        route: true,
-      },
+    // Create the journey plan atomically with route updates
+    const journeyPlan = await prisma.$transaction(async (tx) => {
+      // If routeId is provided, validate and update client's route first
+      if (routeId) {
+        const route = await tx.routes.findUnique({
+          where: { id: parseInt(routeId) },
+        });
+
+        if (!route) {
+          throw new Error('Route not found');
+        }
+
+        // Update client's route
+        await tx.clients.update({
+          where: { id: parseInt(clientId) },
+          data: {
+            route_id_update: parseInt(routeId),
+            route_name_update: route.name,
+          },
+        });
+        
+        await tx.salesRep.update({
+          where: { id: salesRepId },
+          data: {
+            route_id_update: parseInt(routeId),
+            route_name_update: route.name,
+          },
+        });
+      }
+
+      // Create the journey plan
+      return await tx.journeyPlan.create({
+        data: {
+          date: journeyDate,
+          time: time,
+          userId: salesRepId,
+          clientId: parseInt(clientId),
+          status: 0,
+          notes: notes,
+          showUpdateLocation: showUpdateLocation ?? true,
+          routeId: routeId ? parseInt(routeId) : null,
+        },
+        include: {
+          client: true,
+          route: true,
+        },
+      });
+    }, {
+      maxWait: 5000, // 5 second max wait
+      timeout: 10000  // 10 second timeout
     });
 
     console.log('Journey plan created successfully:', journeyPlan);
@@ -299,9 +307,9 @@ const updateJourneyPlan = async (req, res) => {
         console.log(`Status change: ${currentStatus} -> ${REVERSE_STATUS_MAP[status]}`);
       }
 
-      // Handle image upload if present
+      // Handle image upload if present (only for check-in, not checkout)
       let finalImageUrl = undefined;
-      if (req.file) {
+      if (req.file && status !== 'completed') {
         try {
           console.log('Processing checkin image:', req.file.originalname, req.file.mimetype, req.file.size);
           const result = await uploadFile(req.file, {
@@ -315,38 +323,114 @@ const updateJourneyPlan = async (req, res) => {
           console.error('Error uploading checkin image:', uploadError);
           return res.status(500).json({ error: 'Failed to upload checkin image' });
         }
-      } else if (providedImageUrl) {
-        // If no file but imageUrl provided, use that
+      } else if (providedImageUrl && status !== 'completed') {
+        // If no file but imageUrl provided, use that (only for check-in)
         finalImageUrl = providedImageUrl;
       }
 
-      // Update the journey plan
-      const updatedJourneyPlan = await prisma.journeyPlan.update({
-        where: { id: parseInt(journeyId) },
-        data: {
-          status: status !== undefined ? STATUS_MAP[status] : existingJourneyPlan.status,
-          checkInTime: checkInTime ? new Date(checkInTime) : undefined,
-          latitude: latitude !== undefined ? parseFloat(latitude) : undefined,
-          longitude: longitude !== undefined ? parseFloat(longitude) : undefined,
-          imageUrl: finalImageUrl,
-          notes: notes,
-          checkoutTime: checkoutTime ? new Date(checkoutTime) : undefined,
-          checkoutLatitude: checkoutLatitude !== undefined ? parseFloat(checkoutLatitude) : undefined,
-          checkoutLongitude: checkoutLongitude !== undefined ? parseFloat(checkoutLongitude) : undefined,
-          showUpdateLocation: showUpdateLocation !== undefined ? Boolean(showUpdateLocation) : undefined,
-          client: clientId ? {
-            connect: { id: parseInt(clientId) }
-          } : undefined
-        },
-        include: {
-          client: true,
-        },
-      });
+      // Update the journey plan atomically with fail-safe logic and retry
+      let updatedJourneyPlan;
+      try {
+        updatedJourneyPlan = await retryOperation(async () => {
+          return await prisma.$transaction(async (tx) => {
+            // Get client information for location fallback (only if needed)
+            let client = null;
+            if (clientId && (checkoutLatitude === undefined || checkoutLongitude === undefined)) {
+              client = await tx.clients.findUnique({
+                where: { id: parseInt(clientId) },
+                select: { latitude: true, longitude: true } // Only select what we need
+              });
+            }
+
+            // Determine checkout location with fallback logic
+            let finalCheckoutLat = 0;
+            let finalCheckoutLng = 0;
+
+            if (checkoutLatitude !== undefined && checkoutLongitude !== undefined) {
+              // Use user's GPS coordinates
+              finalCheckoutLat = parseFloat(checkoutLatitude);
+              finalCheckoutLng = parseFloat(checkoutLongitude);
+            } else if (client && client.latitude && client.longitude) {
+              // Use client's stored location as fallback
+              finalCheckoutLat = parseFloat(client.latitude);
+              finalCheckoutLng = parseFloat(client.longitude);
+            }
+            // else stays 0,0 (default)
+
+            // Determine checkout time with fallback
+            let finalCheckoutTime = null;
+            if (checkoutTime) {
+              finalCheckoutTime = new Date(checkoutTime);
+            } else if (status === 'completed') {
+              // For checkout, use current time if not provided
+              finalCheckoutTime = new Date();
+            }
+
+            // Update the journey plan with fail-safe data
+            const updated = await tx.journeyPlan.update({
+              where: { id: parseInt(journeyId) },
+              data: {
+                // Priority 1: Status update (most important)
+                status: status !== undefined ? STATUS_MAP[status] : existingJourneyPlan.status,
+                
+                // Check-in data (only if not checkout)
+                ...(status !== 'completed' && {
+                  checkInTime: checkInTime ? new Date(checkInTime) : undefined,
+                  latitude: latitude !== undefined ? parseFloat(latitude) : undefined,
+                  longitude: longitude !== undefined ? parseFloat(longitude) : undefined,
+                  imageUrl: finalImageUrl,
+                }),
+                
+                // Checkout data (only if checkout)
+                ...(status === 'completed' && {
+                  checkoutTime: finalCheckoutTime,
+                  checkoutLatitude: finalCheckoutLat,
+                  checkoutLongitude: finalCheckoutLng,
+                }),
+                
+                // Common data
+                notes: notes,
+                showUpdateLocation: showUpdateLocation !== undefined ? Boolean(showUpdateLocation) : undefined,
+                client: clientId ? {
+                  connect: { id: parseInt(clientId) }
+                } : undefined
+              },
+              include: {
+                client: true,
+              },
+            });
+
+            return updated;
+          }, {
+            maxWait: 10000, // 10 second max wait
+            timeout: 30000  // 30 second timeout (increased from 10)
+          });
+        }, 3, 1000); // Retry 3 times with 1 second delay
+      } catch (transactionError) {
+        console.error('Transaction failed after retries, using fallback update:', transactionError.message);
+        
+        // Fallback: Update only the critical status field
+        updatedJourneyPlan = await prisma.journeyPlan.update({
+          where: { id: parseInt(journeyId) },
+          data: {
+            // Only update the most critical field - status
+            status: status !== undefined ? STATUS_MAP[status] : existingJourneyPlan.status,
+          },
+          include: {
+            client: true,
+          },
+        });
+        
+        console.warn('Used fallback update - only status was updated due to transaction failure');
+      }
 
       console.log('Journey plan updated successfully:', {
         id: updatedJourneyPlan.id,
         status: REVERSE_STATUS_MAP[updatedJourneyPlan.status],
-        imageUrl: updatedJourneyPlan.imageUrl
+        imageUrl: updatedJourneyPlan.imageUrl,
+        checkoutTime: updatedJourneyPlan.checkoutTime,
+        checkoutLocation: status === 'completed' ? 
+          `${updatedJourneyPlan.checkoutLatitude}, ${updatedJourneyPlan.checkoutLongitude}` : 'N/A'
       });
 
       res.status(200).json(updatedJourneyPlan);

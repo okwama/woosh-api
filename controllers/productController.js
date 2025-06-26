@@ -388,35 +388,43 @@ const createProduct = async (req, res) => {
         return res.status(404).json({ error: 'Client not found' });
       }
 
-      // Upload image if present
-      let imageUrl = null;
-      try {
-        imageUrl = await handleImageUpload(req);
-      } catch (error) {
-        return res.status(500).json({ error: 'Image upload failed' });
-      }
+      // Create the product atomically with image upload
+      const product = await prisma.$transaction(async (tx) => {
+        // Upload image if present
+        let imageUrl = null;
+        if (req.file) {
+          try {
+            imageUrl = await handleImageUpload(req);
+          } catch (error) {
+            throw new Error('Image upload failed');
+          }
+        }
 
-      // Create the product
-      const product = await prisma.product.create({
-        data: {
-          name,
-          description,
-          category_id: parseInt(category_id),
-          category,
-          currentStock: parseInt(currentStock) || 0,
-          clientId: parseInt(clientId),
-          image: imageUrl,
-          unit_cost: parseFloat(unit_cost) || 0,
-          unit_cost_tzs: parseFloat(unit_cost_tzs) || 0,
-          unit_cost_ngn: parseFloat(unit_cost_ngn) || 0,
-        },
-        include: {
-          client: true,
-          orderItems: true,
-          storeQuantities: true,
-          purchase: true,
-          purchaseHistory: true
-        },
+        // Create the product
+        return await tx.product.create({
+          data: {
+            name,
+            description,
+            category_id: parseInt(category_id),
+            category,
+            currentStock: parseInt(currentStock) || 0,
+            clientId: parseInt(clientId),
+            image: imageUrl,
+            unit_cost: parseFloat(unit_cost) || 0,
+            unit_cost_tzs: parseFloat(unit_cost_tzs) || 0,
+            unit_cost_ngn: parseFloat(unit_cost_ngn) || 0,
+          },
+          include: {
+            client: true,
+            orderItems: true,
+            storeQuantities: true,
+            purchase: true,
+            purchaseHistory: true
+          },
+        });
+      }, {
+        maxWait: 5000,
+        timeout: 10000
       });
 
       console.log('Product created successfully:', product);

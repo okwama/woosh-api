@@ -27,6 +27,53 @@ const upload = multer({
   }
 }).single('image');
 
+// Simple circuit breaker for outlet queries
+class OutletCircuitBreaker {
+  constructor() {
+    this.failureCount = 0;
+    this.lastFailureTime = null;
+    this.state = 'CLOSED'; // CLOSED, OPEN, HALF_OPEN
+    this.failureThreshold = 3;
+    this.resetTimeout = 30000; // 30 seconds
+  }
+
+  async execute(operation) {
+    if (this.state === 'OPEN') {
+      if (Date.now() - this.lastFailureTime > this.resetTimeout) {
+        this.state = 'HALF_OPEN';
+      } else {
+        throw new Error('Circuit breaker is OPEN - too many outlet query failures');
+      }
+    }
+
+    try {
+      const result = await operation();
+      this.onSuccess();
+      return result;
+    } catch (error) {
+      this.onFailure();
+      throw error;
+    }
+  }
+
+  onSuccess() {
+    this.failureCount = 0;
+    this.state = 'CLOSED';
+  }
+
+  onFailure() {
+    this.failureCount++;
+    this.lastFailureTime = Date.now();
+    
+    if (this.failureCount >= this.failureThreshold) {
+      this.state = 'OPEN';
+    }
+  }
+}
+
+// Global circuit breaker instance
+const outletCircuitBreaker = new OutletCircuitBreaker();
+
 // Get all outlets
 const getOutlets = async (req, res) => {
   try {
@@ -47,46 +94,73 @@ const getOutlets = async (req, res) => {
       };
     }
 
-    // Get total count for pagination
-    const total = await prisma.clients.count({ where });
+    // Use circuit breaker for database operations
+    const result = await outletCircuitBreaker.execute(async () => {
+      // Add timeout to prevent slow requests
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error('Database query timeout')), 25000); // 25 second timeout
+      });
 
-    const outlets = await prisma.clients.findMany({
-      where,
-      select: {
-        id: true,
-        name: true,
-        balance: true,
-        address: true,
-        latitude: true,
-        longitude: true,
-        created_at: true,
-        // Add any frequently used fields to avoid separate queries
-      },
-      skip: Math.max(0, skip), // Ensure skip is never negative
-      take: Math.min(Number(limit), 2000), // Enforce maximum limit and faster conversion
-      orderBy: [
-        { name: 'asc' }, // Primary sort
-        { id: 'asc' } // Secondary sort for consistent pagination
-      ]
+      // Get total count for pagination
+      const totalPromise = prisma.clients.count({ where });
+      const total = await Promise.race([totalPromise, timeoutPromise]);
+
+      // Get outlets with timeout
+      const outletsPromise = prisma.clients.findMany({
+        where,
+        select: {
+          id: true,
+          name: true,
+          balance: true,
+          address: true,
+          latitude: true,
+          longitude: true,
+          created_at: true,
+          // Add any frequently used fields to avoid separate queries
+        },
+        skip: Math.max(0, skip), // Ensure skip is never negative
+        take: Math.min(Number(limit), 2000), // Enforce maximum limit and faster conversion
+        orderBy: [
+          { name: 'asc' }, // Primary sort
+          { id: 'asc' } // Secondary sort for consistent pagination
+        ]
+      });
+
+      const outlets = await Promise.race([outletsPromise, timeoutPromise]);
+
+      return { outlets, total };
     });
 
     // Add default value for balance if it's null/undefined
-    const outletsWithDefaultBalance = outlets.map(outlet => ({
+    const outletsWithDefaultBalance = result.outlets.map(outlet => ({
       ...outlet,
       balance: String(outlet.balance ?? "0"),
       created_at: outlet.created_at?.toISOString() ?? null,
     }));
 
-    res.json({
-      data: outletsWithDefaultBalance,
-      total,
-      page: parseInt(page),
-      limit: parseInt(limit),
-      totalPages: Math.ceil(total / parseInt(limit))
-    });
+    // Check if response has already been sent
+    if (!res.headersSent) {
+      res.json({
+        data: outletsWithDefaultBalance,
+        total: result.total,
+        page: parseInt(page),
+        limit: parseInt(limit),
+        totalPages: Math.ceil(result.total / parseInt(limit))
+      });
+    }
   } catch (error) {
     console.error('Error fetching outlets:', error);
-    res.status(500).json({ error: 'Error fetching outlets' });
+    
+    // Check if response has already been sent
+    if (!res.headersSent) {
+      if (error.message === 'Database query timeout') {
+        res.status(408).json({ error: 'Request timeout - too many outlets to fetch' });
+      } else if (error.message.includes('Circuit breaker is OPEN')) {
+        res.status(503).json({ error: 'Service temporarily unavailable - too many outlet query failures' });
+      } else {
+        res.status(500).json({ error: 'Error fetching outlets' });
+      }
+    }
   }
 };
 
@@ -116,28 +190,43 @@ const createOutlet = async (req, res) => {
   }
 
   try {
-    const newOutlet = await prisma.clients.create({
-      data: {
-        name,
-        address,
-        contact,
-        client_type: 1,
-        ...(balance !== undefined && { balance: balance.toString() }),
-        ...(email && { email }),
-        tax_pin: req.body.tax_pin || "0",
-        location: req.body.location || "Unknown",
-        latitude,
-        longitude,
-        countryId: req.user.countryId, // Get countryId from logged-in user
-        region_id: parseInt(region_id),
-        region: region || "Unknown",
-        route_id: route_id ? parseInt(route_id) : null,
-        route_id_update: route_id ? parseInt(route_id) : null,
-        route_name_update: req.user.route_name || "Unknown",
-        added_by: req.user.id,
-        created_at: new Date(),
-      },
+    const newOutlet = await prisma.$transaction(async (tx) => {
+      // Create the outlet
+      const outlet = await tx.clients.create({
+        data: {
+          name,
+          address,
+          contact,
+          client_type: 1,
+          ...(balance !== undefined && { balance: balance.toString() }),
+          ...(email && { email }),
+          tax_pin: req.body.tax_pin || "0",
+          location: req.body.location || "Unknown",
+          latitude,
+          longitude,
+          countryId: req.user.countryId, // Get countryId from logged-in user
+          region_id: parseInt(region_id),
+          region: region || "Unknown",
+          route_id: route_id ? parseInt(route_id) : null,
+          route_id_update: route_id ? parseInt(route_id) : null,
+          route_name_update: req.user.route_name || "Unknown",
+          added_by: req.user.id,
+          created_at: new Date(),
+        },
+      });
+
+      // If outlet was created successfully, you could update related records here
+      // For example, update route statistics, etc.
+      if (route_id) {
+        console.log(`Outlet ${outlet.id} assigned to route ${route_id}`);
+      }
+
+      return outlet;
+    }, {
+      maxWait: 5000,
+      timeout: 10000
     });
+
     res.status(201).json(newOutlet);
   } catch (error) {
     console.error('Error creating outlet:', error);
@@ -307,33 +396,41 @@ const addClientPayment = async (req, res) => {
         return res.status(400).json({ error: 'Missing required fields' });
       }
 
-      let imageUrl = null;
-      let thumbnailUrl = null;
+      // Create payment atomically with image upload
+      const payment = await prisma.$transaction(async (tx) => {
+        let imageUrl = null;
+        let thumbnailUrl = null;
 
-      if (req.file) {
-        try {
-          const result = await uploadFile(req.file, {
-            folder: 'whoosh/payments',
-            type: 'document',
-            generateThumbnail: true
-          });
-          imageUrl = result.main.url;
-          thumbnailUrl = result.thumbnail?.url;
-        } catch (error) {
-          return res.status(500).json({ error: 'Failed to upload payment document' });
+        // Handle image upload first
+        if (req.file) {
+          try {
+            const result = await uploadFile(req.file, {
+              folder: 'whoosh/payments',
+              type: 'document',
+              generateThumbnail: true
+            });
+            imageUrl = result.main.url;
+            thumbnailUrl = result.thumbnail?.url;
+          } catch (error) {
+            throw new Error('Failed to upload payment document');
+          }
         }
-      }
 
-      const payment = await prisma.clientPayment.create({
-        data: {
-          clientId: parseInt(clientId),
-          amount: parseFloat(amount),
-          paymentDate: new Date(paymentDate),
-          paymentType,
-          documentUrl: imageUrl,
-          thumbnailUrl: thumbnailUrl,
-          addedBy: req.user.id
-        }
+        // Create the payment record
+        return await tx.clientPayment.create({
+          data: {
+            clientId: parseInt(clientId),
+            amount: parseFloat(amount),
+            paymentDate: new Date(paymentDate),
+            paymentType,
+            documentUrl: imageUrl,
+            thumbnailUrl: thumbnailUrl,
+            addedBy: req.user.id
+          }
+        });
+      }, {
+        maxWait: 5000,
+        timeout: 10000
       });
 
       res.status(201).json(payment);
