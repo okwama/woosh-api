@@ -1,6 +1,26 @@
 const jwt = require('jsonwebtoken');
 const prisma = require('../lib/prisma');
 
+// Retry function for database operations
+const retryOperation = async (operation, maxRetries = 3, delay = 100) => {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      return await operation();
+    } catch (error) {
+      const isLockTimeout = error.message && error.message.includes('Lock wait timeout');
+      const isRetryable = isLockTimeout || error.code === 'P2002'; // Unique constraint or lock timeout
+      
+      if (attempt === maxRetries || !isRetryable) {
+        throw error;
+      }
+      
+      // Exponential backoff
+      const waitTime = delay * Math.pow(2, attempt - 1);
+      await new Promise(resolve => setTimeout(resolve, waitTime));
+    }
+  }
+};
+
 // Function to generate new tokens
 const generateNewTokens = async (userId, role) => {
   try {
@@ -19,24 +39,28 @@ const generateNewTokens = async (userId, role) => {
     );
 
     // Store both tokens in database
-    await prisma.token.create({
-      data: {
-        token: newAccessToken,
-        salesRepId: userId,
-        tokenType: 'access',
-        expiresAt: new Date(Date.now() + 8 * 60 * 60 * 1000), // 8 hours
-        blacklisted: false
-      }
+    await retryOperation(async () => {
+      return await prisma.token.create({
+        data: {
+          token: newAccessToken,
+          salesRepId: userId,
+          tokenType: 'access',
+          expiresAt: new Date(Date.now() + 8 * 60 * 60 * 1000), // 8 hours
+          blacklisted: false
+        }
+      });
     });
 
-    await prisma.token.create({
-      data: {
-        token: newRefreshToken,
-        salesRepId: userId,
-        tokenType: 'refresh',
-        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
-        blacklisted: false
-      }
+    await retryOperation(async () => {
+      return await prisma.token.create({
+        data: {
+          token: newRefreshToken,
+          salesRepId: userId,
+          tokenType: 'refresh',
+          expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
+          blacklisted: false
+        }
+      });
     });
 
     return { newAccessToken, newRefreshToken };
@@ -119,13 +143,15 @@ const authenticateToken = async (req, res, next) => {
         }
 
         // Blacklist the old token
-        await prisma.token.updateMany({
-          where: {
-            token: token,
-            salesRepId: decoded.userId,
-            tokenType: 'access'
-          },
-          data: { blacklisted: true }
+        await retryOperation(async () => {
+          return await prisma.token.updateMany({
+            where: {
+              token: token,
+              salesRepId: decoded.userId,
+              tokenType: 'access'
+            },
+            data: { blacklisted: true }
+          });
         });
 
         // Generate new tokens
@@ -144,6 +170,7 @@ const authenticateToken = async (req, res, next) => {
         res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
 
         console.log('Tokens automatically refreshed for user:', decoded.userId);
+
         next();
         return;
       } catch (refreshError) {
@@ -184,22 +211,6 @@ const authenticateToken = async (req, res, next) => {
       return res.status(401).json({ error: 'User not found' });
     }
 
-    // Update last used timestamp if we have a token record and database is available
-    if (tokenRecord && dbAvailable) {
-      // Non-blocking update
-      (async () => {
-        try {
-          await prisma.token.update({
-            where: { id: tokenRecord.id },
-            data: { lastUsedAt: new Date() }
-          });
-        } catch (updateError) {
-          // Log the full error for more insight
-          console.error('Failed to update token last used:', updateError);
-        }
-      })();
-    }
-
     // Set security headers
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('X-Frame-Options', 'DENY');
@@ -209,6 +220,25 @@ const authenticateToken = async (req, res, next) => {
     req.user = user;
     req.token = token;
     req.tokensRefreshed = false;
+
+    // Update last used timestamp if we have a token record and database is available
+    if (tokenRecord && dbAvailable) {
+      // Non-blocking update with retry logic
+      (async () => {
+        try {
+          await retryOperation(async () => {
+            return await prisma.token.update({
+              where: { id: tokenRecord.id },
+              data: { lastUsedAt: new Date() }
+            });
+          });
+        } catch (updateError) {
+          // Log the error but don't fail the request
+          console.warn('Failed to update token last used after retries:', updateError.message);
+        }
+      })();
+    }
+
     next();
   } catch (error) {
     console.error('Authentication error:', error);
