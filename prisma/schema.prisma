@@ -55,6 +55,7 @@ model SalesRep {
   productsSampleItems  ProductsSampleItem[]
   reports              Report[]
   countryRelation      Country              @relation(fields: [countryId], references: [id])
+  SalesTargets         SalesTargets[]
   targets              Target[]
   tokens               Token[]
   UpliftSale           UpliftSale[]
@@ -159,15 +160,14 @@ model PriceOption {
   id         Int         @id @default(autoincrement())
   option     String
   value      Int
-  value_tzs  Decimal?                @db.Decimal(11, 2)
-  value_ngn  Decimal?                @db.Decimal(11, 2)
   categoryId Int
+  value_ngn  Decimal?    @db.Decimal(11, 2)
+  value_tzs  Decimal?    @db.Decimal(11, 2)
   orderItems OrderItem[]
   category   Category    @relation(fields: [categoryId], references: [id])
 
   @@index([categoryId], map: "PriceOption_categoryId_fkey")
 }
-
 
 model StoreQuantity {
   id        Int     @id @default(autoincrement())
@@ -206,14 +206,14 @@ model Product {
   category_id          Int
   category             String
   unit_cost            Decimal                @db.Decimal(11, 2)
-  unit_cost_tzs        Decimal?                @db.Decimal(11, 2)
-  unit_cost_ngn        Decimal?                @db.Decimal(11, 2)
   description          String?
   currentStock         Int?
   createdAt            DateTime               @default(now())
   updatedAt            DateTime               @updatedAt
   clientId             Int?
-  image                String?                @default("")
+  image                String?                @db.VarChar(255)
+  unit_cost_ngn        Decimal?               @db.Decimal(11, 2)
+  unit_cost_tzs        Decimal?               @db.Decimal(11, 2)
   orderItems           OrderItem[]
   client               Clients?               @relation(fields: [clientId], references: [id])
   ProductDetails       ProductDetails[]
@@ -323,7 +323,7 @@ model Clients {
   location           String?
   status             Int                  @default(0)
   client_type        Int?
-  outlet_account     Int
+  outlet_account     Int?
   countryId          Int
   added_by           Int?
   created_at         DateTime?            @default(now())
@@ -452,7 +452,7 @@ model MyOrder {
   countryId            Int
   regionId             Int
   createdAt            DateTime    @default(now())
-  updatedAt            DateTime    @updatedAt
+  updatedAt            DateTime    @default(now()) @updatedAt
   approved_by          String      @db.VarChar(200)
   approved_by_name     String      @db.VarChar(200)
   storeId              Int?
@@ -730,27 +730,28 @@ model SupplierHistory {
 }
 
 model users {
-  id            Int         @id @default(autoincrement())
-  username      String      @db.VarChar(100)
-  department    Int
-  password      String      @db.VarChar(100)
-  account_code  String      @db.VarChar(32)
-  firstname     String?     @db.VarChar(255)
-  lastname      String?     @db.VarChar(255)
-  facebook_id   String?     @db.VarChar(255)
-  address       String?     @db.VarChar(255)
-  email         String?     @db.VarChar(255)
-  phone         String      @db.VarChar(32)
-  gender        String      @db.VarChar(32)
-  country       String      @db.VarChar(99)
-  image         String      @db.VarChar(999)
-  created       DateTime?   @db.DateTime(0)
-  modified      DateTime?   @db.DateTime(0)
-  status        Boolean?    @default(true)
-  profile_photo String      @db.VarChar(255)
-  Expenses      Expenses[]
-  documents     documents[]
-  Task          Task[]
+  id             Int              @id @default(autoincrement())
+  username       String           @db.VarChar(100)
+  department     Int
+  password       String           @db.VarChar(100)
+  account_code   String           @db.VarChar(32)
+  firstname      String?          @db.VarChar(255)
+  lastname       String?          @db.VarChar(255)
+  facebook_id    String?          @db.VarChar(255)
+  address        String?          @db.VarChar(255)
+  email          String?          @db.VarChar(255)
+  phone          String           @db.VarChar(32)
+  gender         String           @db.VarChar(32)
+  country        String           @db.VarChar(99)
+  image          String           @db.VarChar(999)
+  created        DateTime?        @db.DateTime(0)
+  modified       DateTime?        @db.DateTime(0)
+  status         Boolean?         @default(true)
+  profile_photo  String           @db.VarChar(255)
+  Expenses       Expenses[]
+  company_assets company_assets[]
+  documents      documents[]
+  Task           Task[]
 }
 
 model Task {
@@ -1660,17 +1661,18 @@ model suppliers_g {
 }
 
 model targets_g {
-  id            Int          @id @default(autoincrement())
-  salesRepId    Int
-  isCurrent     Boolean      @default(false)
-  targetValue   Int
-  achievedValue Int          @default(0)
-  achieved      Boolean      @default(false)
-  createdAt     DateTime     @default(now())
-  updatedAt     DateTime
-  sales_reps_g  sales_reps_g @relation(fields: [salesRepId], references: [id], onDelete: Cascade)
+  id             Int          @id @default(autoincrement())
+  sales_rep      Int
+  new_retail     Int          @default(0) @db.TinyInt
+  vapes_retail   Int
+  pouches_retail Int          @default(0)
+  new_ka         Int          @default(0) @db.TinyInt
+  vapes_ka       Int?
+  pouches_ka     Int
+  date           String       @db.VarChar(100)
+  sales_reps_g   sales_reps_g @relation(fields: [sales_rep], references: [id], onDelete: Cascade, map: "targets_g_salesRepId_fkey")
 
-  @@index([salesRepId], map: "Target_g_salesRepId_fkey")
+  @@index([sales_rep], map: "Target_g_salesRepId_fkey")
 }
 
 model tasks_g {
@@ -1896,6 +1898,51 @@ model outlet_accounts {
 model outlet_categories {
   id   Int    @id @default(autoincrement())
   name String @db.VarChar(100)
+}
+
+model SalesTargets {
+  id             Int      @id @default(autoincrement())
+  sales_rep_id   Int
+  month          Int
+  new_retail     Int?     @default(0)
+  vapes_retail   Int?     @default(0)
+  pouches_retail Int?     @default(0)
+  new_ka         Int?     @default(0)
+  vapes_ka       Int?     @default(0)
+  pouches_ka     Int?     @default(0)
+  SalesRep       SalesRep @relation(fields: [sales_rep_id], references: [id], onUpdate: Restrict, map: "SalesTargets_ibfk_1")
+
+  @@unique([sales_rep_id, month], map: "sales_rep_id")
+}
+
+model company_assets {
+  id                   Int                    @id @default(autoincrement())
+  asset_name           String                 @db.VarChar(100)
+  category             String                 @db.VarChar(50)
+  purchase_date        DateTime               @db.Date
+  price                Decimal                @db.Decimal(10, 2)
+  quantity             Int                    @default(1)
+  description          String?                @db.Text
+  useful_life          Int
+  residual_value       Decimal                @db.Decimal(11, 2)
+  created_at           DateTime               @default(now()) @db.Timestamp(0)
+  updated_at           DateTime               @default(now()) @db.Timestamp(0)
+  created_by           Int
+  status               Boolean?               @default(true)
+  users                users                  @relation(fields: [created_by], references: [id], onUpdate: Restrict, map: "company_assets_ibfk_1")
+  depreciation_entries depreciation_entries[]
+
+  @@index([created_by], map: "created_by")
+}
+
+model depreciation_entries {
+  id             Int             @id
+  asset_id       Int?
+  amount         Decimal?        @db.Decimal(10, 2)
+  date_posted    DateTime?       @db.Date
+  company_assets company_assets? @relation(fields: [asset_id], references: [id], onDelete: Restrict, onUpdate: Restrict, map: "depreciation_entries_ibfk_1")
+
+  @@index([asset_id], map: "asset_id")
 }
 
 enum ReportType {
