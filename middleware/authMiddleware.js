@@ -2,6 +2,13 @@ const jwt = require('jsonwebtoken');
 const prisma = require('../lib/prisma');
 const { withConnectionRetry } = require('../lib/connectionManager');
 
+// Configuration for non-critical operations
+const CONFIG = {
+  ENABLE_LAST_USED_UPDATE: process.env.ENABLE_LAST_USED_UPDATE !== 'false', // Default to true
+  LAST_USED_UPDATE_RETRIES: 1, // Minimal retries for non-critical operation
+  LAST_USED_UPDATE_DELAY: 25 // Short delay
+};
+
 // Circuit breaker for database operations
 class CircuitBreaker {
   constructor(failureThreshold = 5, resetTimeout = 60000) {
@@ -56,14 +63,15 @@ const retryOperation = async (operation, maxRetries = 3, delay = 100) => {
       return await operation();
     } catch (error) {
       const isLockTimeout = error.message && error.message.includes('Lock wait timeout');
-      const isRetryable = isLockTimeout || error.code === 'P2002'; // Unique constraint or lock timeout
+      const isConnectionError = error.code === 'P1001' || error.code === 'P1008' || error.code === 'P1017';
+      const isRetryable = isLockTimeout || error.code === 'P2002' || isConnectionError; // Unique constraint, lock timeout, or connection issues
       
       if (attempt === maxRetries || !isRetryable) {
         throw error;
       }
       
-      // Exponential backoff
-      const waitTime = delay * Math.pow(2, attempt - 1);
+      // Exponential backoff with jitter
+      const waitTime = delay * Math.pow(2, attempt - 1) + Math.random() * 100;
       await new Promise(resolve => setTimeout(resolve, waitTime));
     }
   }
@@ -582,16 +590,21 @@ const authenticateToken = async (req, res, next) => {
     authFailureTracker.recordSuccess();
 
     // Update last used timestamp if we have a token record and database is available
-    if (tokenRecord && dbAvailable) {
-      // Optimistic update - don't block the response
-      optimisticUpdate(async () => {
-        return await prisma.token.update({
-          where: { id: tokenRecord.id },
-          data: { lastUsedAt: new Date() }
-        });
-      }).catch(error => {
-        // Silently fail - this update isn't critical
-        console.debug('Token lastUsedAt update failed (non-critical):', error.message);
+    if (tokenRecord && dbAvailable && CONFIG.ENABLE_LAST_USED_UPDATE) {
+      // Fire-and-forget update - completely non-blocking
+      setImmediate(async () => {
+        try {
+          // Use minimal retry logic for non-critical operation
+          await retryOperation(async () => {
+            return await prisma.token.update({
+              where: { id: tokenRecord.id },
+              data: { lastUsedAt: new Date() }
+            });
+          }, CONFIG.LAST_USED_UPDATE_RETRIES, CONFIG.LAST_USED_UPDATE_DELAY);
+        } catch (error) {
+          // Completely silent fail - this update is not critical at all
+          // No logging at all to avoid noise
+        }
       });
     }
 
@@ -743,6 +756,28 @@ const disableEmergencyMode = () => {
   return { message: 'Emergency mode manually disabled' };
 };
 
+// Function to disable lastUsedAt updates (for admin purposes)
+const disableLastUsedUpdates = () => {
+  CONFIG.ENABLE_LAST_USED_UPDATE = false;
+  return { message: 'LastUsedAt updates disabled' };
+};
+
+// Function to enable lastUsedAt updates (for admin purposes)
+const enableLastUsedUpdates = () => {
+  CONFIG.ENABLE_LAST_USED_UPDATE = true;
+  return { message: 'LastUsedAt updates enabled' };
+};
+
+// Function to get current configuration
+const getAuthConfig = () => {
+  return {
+    lastUsedUpdatesEnabled: CONFIG.ENABLE_LAST_USED_UPDATE,
+    lastUsedUpdateRetries: CONFIG.LAST_USED_UPDATE_RETRIES,
+    lastUsedUpdateDelay: CONFIG.LAST_USED_UPDATE_DELAY,
+    emergencyMode: authFailureTracker.getEmergencyModeStatus()
+  };
+};
+
 // Export all functions
 module.exports = {
   authenticateToken,
@@ -753,5 +788,8 @@ module.exports = {
   getEmergencyModeStatus,
   getEmergencyUsageStats,
   triggerEmergencyMode,
-  disableEmergencyMode
+  disableEmergencyMode,
+  disableLastUsedUpdates,
+  enableLastUsedUpdates,
+  getAuthConfig
 };
