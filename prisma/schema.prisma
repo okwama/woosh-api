@@ -123,10 +123,10 @@ model Token {
   tokenType   String    @default("access")
   user        SalesRep  @relation(fields: [salesRepId], references: [id], onDelete: Cascade)
 
-  @@index([salesRepId], map: "Token_userId_fkey")
   @@index([blacklisted])
   @@index([lastUsedAt])
   @@index([tokenType])
+  @@index([salesRepId], map: "Token_userId_fkey")
 }
 
 model Regions {

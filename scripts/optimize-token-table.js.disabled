@@ -1,0 +1,147 @@
+const { PrismaClient } = require('@prisma/client');
+
+const prisma = new PrismaClient();
+
+async function optimizeTokenTable() {
+  try {
+    console.log('🔧 Starting Token table optimization...');
+    
+    // Add TTL column if it doesn't exist
+    console.log('📝 Adding TTL column...');
+    await prisma.$executeRaw`
+      ALTER TABLE Token 
+      ADD COLUMN IF NOT EXISTS ttl DATETIME(3) NULL
+    `;
+    
+    // Create optimized indexes
+    console.log('📊 Creating optimized indexes...');
+    
+    // Composite index for user's active tokens
+    await prisma.$executeRaw`
+      CREATE INDEX IF NOT EXISTS Token_user_type_idx 
+      ON Token (salesRepId, tokenType)
+    `;
+    
+    // Index for token validation
+    await prisma.$executeRaw`
+      CREATE INDEX IF NOT EXISTS Token_type_status_idx 
+      ON Token (tokenType, blacklisted)
+    `;
+    
+    // Index for cleanup operations
+    await prisma.$executeRaw`
+      CREATE INDEX IF NOT EXISTS Token_expires_idx 
+      ON Token (expiresAt)
+    `;
+    
+    // Index for blacklisted token cleanup
+    await prisma.$executeRaw`
+      CREATE INDEX IF NOT EXISTS Token_blacklisted_created_idx 
+      ON Token (blacklisted, createdAt)
+    `;
+    
+    // Index for usage tracking
+    await prisma.$executeRaw`
+      CREATE INDEX IF NOT EXISTS Token_last_used_idx 
+      ON Token (lastUsedAt)
+    `;
+    
+    // Composite index for token lookup
+    await prisma.$executeRaw`
+      CREATE INDEX IF NOT EXISTS Token_lookup_idx 
+      ON Token (token, salesRepId, tokenType)
+    `;
+    
+    // Unique constraint on token
+    console.log('🔒 Adding unique constraint on token...');
+    try {
+      await prisma.$executeRaw`
+        ALTER TABLE Token 
+        ADD CONSTRAINT Token_unique_token UNIQUE (token)
+      `;
+    } catch (error) {
+      if (error.message.includes('Duplicate entry')) {
+        console.log('⚠️  Duplicate tokens found, cleaning up...');
+        // Remove duplicate tokens (keep the most recent one)
+        await prisma.$executeRaw`
+          DELETE t1 FROM Token t1
+          INNER JOIN Token t2 
+          WHERE t1.id < t2.id AND t1.token = t2.token
+        `;
+        // Try adding constraint again
+        await prisma.$executeRaw`
+          ALTER TABLE Token 
+          ADD CONSTRAINT Token_unique_token UNIQUE (token)
+        `;
+      } else {
+        throw error;
+      }
+    }
+    
+    // Update existing tokens with TTL
+    console.log('⏰ Setting TTL for existing tokens...');
+    const now = new Date();
+    const accessTTL = new Date(now.getTime() + 24 * 60 * 60 * 1000); // 24 hours
+    const refreshTTL = new Date(now.getTime() + 8 * 24 * 60 * 60 * 1000); // 8 days
+    
+    await prisma.token.updateMany({
+      where: {
+        tokenType: 'access',
+        ttl: null
+      },
+      data: {
+        ttl: accessTTL
+      }
+    });
+    
+    await prisma.token.updateMany({
+      where: {
+        tokenType: 'refresh',
+        ttl: null
+      },
+      data: {
+        ttl: refreshTTL
+      }
+    });
+    
+    // Get table statistics
+    const stats = await prisma.token.groupBy({
+      by: ['tokenType', 'blacklisted'],
+      _count: {
+        id: true
+      }
+    });
+    
+    console.log('\n📊 Token table statistics after optimization:');
+    stats.forEach(stat => {
+      const type = stat.tokenType || 'unknown';
+      const status = stat.blacklisted ? 'blacklisted' : 'active';
+      console.log(`  ${type} tokens (${status}): ${stat._count.id}`);
+    });
+    
+    // Show index information
+    console.log('\n📋 Index information:');
+    const indexes = await prisma.$queryRaw`
+      SHOW INDEX FROM Token
+    `;
+    
+    indexes.forEach(index => {
+      console.log(`  - ${index.Key_name}: ${index.Column_name}`);
+    });
+    
+    console.log('\n✅ Token table optimization completed successfully!');
+    
+  } catch (error) {
+    console.error('❌ Error during token table optimization:', error);
+    throw error;
+  } finally {
+    await prisma.$disconnect();
+  }
+}
+
+// Run optimization if called directly
+if (require.main === module) {
+  optimizeTokenTable();
+}
+
+module.exports = optimizeTokenTable; 

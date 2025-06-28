@@ -282,7 +282,7 @@ const gracefulShutdown = async () => {
   
   // Disconnect from the database
   try {
-    await prisma.disconnect();
+    await prisma.$disconnect();
     console.log('Database connection closed');
   } catch (error) {
     console.error('Error disconnecting from database:', error);

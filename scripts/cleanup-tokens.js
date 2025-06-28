@@ -1,59 +1,30 @@
-const { PrismaClient } = require('@prisma/client');
-
-const prisma = new PrismaClient();
+const { tokenService } = require('../lib/tokenService');
 
 async function cleanupTokens() {
   try {
-    console.log('🧹 Starting token cleanup...');
+    console.log('🧹 Starting optimized token cleanup...');
     
-    const now = new Date();
+    // Use the optimized token service for cleanup
+    const deletedCount = await tokenService.cleanupExpiredTokens(100);
     
-    // Delete expired tokens (both access and refresh)
-    const expiredResult = await prisma.token.deleteMany({
-      where: {
-        expiresAt: {
-          lt: now
-        }
-      }
-    });
-    
-    console.log(`✅ Deleted ${expiredResult.count} expired tokens`);
-    
-    // Delete blacklisted tokens older than 7 days
-    const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-    
-    const blacklistedResult = await prisma.token.deleteMany({
-      where: {
-        blacklisted: true,
-        createdAt: {
-          lt: sevenDaysAgo
-        }
-      }
-    });
-    
-    console.log(`✅ Deleted ${blacklistedResult.count} old blacklisted tokens`);
+    console.log(`✅ Deleted ${deletedCount} expired tokens using batch operations`);
     
     // Get current token statistics
-    const stats = await prisma.token.groupBy({
-      by: ['tokenType', 'blacklisted'],
-      _count: {
-        id: true
-      }
-    });
+    const stats = await tokenService.getTokenStats();
     
     console.log('\n📊 Current token statistics:');
-    stats.forEach(stat => {
-      const type = stat.tokenType || 'unknown';
-      const status = stat.blacklisted ? 'blacklisted' : 'active';
-      console.log(`  ${type} tokens (${status}): ${stat._count.id}`);
+    Object.entries(stats).forEach(([key, count]) => {
+      console.log(`  ${key}: ${count}`);
     });
     
-    console.log('\n✨ Token cleanup completed successfully!');
+    // Clear token cache to free memory
+    tokenService.clearCache();
+    console.log('🧹 Token cache cleared');
+    
+    console.log('\n✨ Optimized token cleanup completed successfully!');
     
   } catch (error) {
     console.error('❌ Error during token cleanup:', error);
-  } finally {
-    await prisma.$disconnect();
   }
 }
 

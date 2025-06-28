@@ -1,6 +1,7 @@
 const jwt = require('jsonwebtoken');
 const prisma = require('../lib/prisma');
 const { withConnectionRetry } = require('../lib/connectionManager');
+const { tokenService } = require('../lib/tokenService');
 
 // Configuration for non-critical operations
 const CONFIG = {
@@ -409,18 +410,8 @@ const authenticateToken = async (req, res, next) => {
     let dbAvailable = true;
     
     try {
-      // Check if access token exists in database and is not expired/blacklisted
-      tokenRecord = await prisma.token.findFirst({
-        where: {
-          token: token,
-          salesRepId: decoded.userId,
-          tokenType: 'access',
-          blacklisted: false,
-          expiresAt: {
-            gt: new Date()
-          }
-        }
-      });
+      // Use optimized token service for validation
+      tokenRecord = await tokenService.validateToken(token, decoded.userId, 'access');
     } catch (dbError) {
       console.warn('Database connection issue during token validation:', dbError.message);
       dbAvailable = false;
@@ -446,56 +437,7 @@ const authenticateToken = async (req, res, next) => {
 
         // Atomic token refresh: blacklist old token and create new tokens
         const { newAccessToken, newRefreshToken } = await retryOperation(async () => {
-          return await prisma.$transaction(async (tx) => {
-            // Blacklist the old token
-            await tx.token.updateMany({
-              where: {
-                token: token,
-                salesRepId: decoded.userId,
-                tokenType: 'access'
-              },
-              data: { blacklisted: true }
-            });
-
-            // Generate new tokens
-            const accessToken = jwt.sign(
-              { userId: decoded.userId, role: user.role, type: 'access' },
-              process.env.JWT_SECRET,
-              { expiresIn: '8h' }
-            );
-
-            const refreshToken = jwt.sign(
-              { userId: decoded.userId, role: user.role, type: 'refresh' },
-              process.env.JWT_SECRET,
-              { expiresIn: '7d' }
-            );
-
-            // Create new tokens
-            await tx.token.create({
-              data: {
-                token: accessToken,
-                salesRepId: decoded.userId,
-                tokenType: 'access',
-                expiresAt: new Date(Date.now() + 8 * 60 * 60 * 1000),
-                blacklisted: false
-              }
-            });
-
-            await tx.token.create({
-              data: {
-                token: refreshToken,
-                salesRepId: decoded.userId,
-                tokenType: 'refresh',
-                expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-                blacklisted: false
-              }
-            });
-
-            return { newAccessToken: accessToken, newRefreshToken: refreshToken };
-          }, {
-            maxWait: 5000, // 5 second max wait
-            timeout: 10000  // 10 second timeout
-          });
+          return await tokenService.refreshTokens(decoded.userId, user.role);
         });
 
         // Set the new access token in the request for this call
@@ -591,21 +533,8 @@ const authenticateToken = async (req, res, next) => {
 
     // Update last used timestamp if we have a token record and database is available
     if (tokenRecord && dbAvailable && CONFIG.ENABLE_LAST_USED_UPDATE) {
-      // Fire-and-forget update - completely non-blocking
-      setImmediate(async () => {
-        try {
-          // Use minimal retry logic for non-critical operation
-          await retryOperation(async () => {
-            return await prisma.token.update({
-              where: { id: tokenRecord.id },
-              data: { lastUsedAt: new Date() }
-            });
-          }, CONFIG.LAST_USED_UPDATE_RETRIES, CONFIG.LAST_USED_UPDATE_DELAY);
-        } catch (error) {
-          // Completely silent fail - this update is not critical at all
-          // No logging at all to avoid noise
-        }
-      });
+      // Use optimized token service for lastUsedAt update
+      tokenService.updateLastUsed(tokenRecord.id);
     }
 
     next();

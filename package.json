@@ -34,6 +34,7 @@
     "prisma": "^5.10.0",
     "progress": "^2.0.3",
     "sharp": "^0.34.2",
+    "telnet": "^0.0.1",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
