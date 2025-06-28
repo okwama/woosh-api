@@ -64,51 +64,43 @@ const logoutJob = cron.schedule('0 0 * * *', async () => {
   console.log(`⏰ Running auto-logout job at ${now.toLocaleString('en-KE', { timeZone: 'Africa/Nairobi' })}`);
 
   try {
-    // Process tokens in batches of 100
-    const BATCH_SIZE = 100;
-    let processedCount = 0;
-    let hasMore = true;
-
-    while (hasMore) {
-      // Get a batch of non-blacklisted tokens
-      const tokens = await prisma.token.findMany({
-        where: {
-          blacklisted: false,
-          expiresAt: {
-            gt: new Date()
-          }
-        },
-        take: BATCH_SIZE,
-        select: {
-          id: true
-        }
-      });
-
-      if (tokens.length === 0) {
-        hasMore = false;
-        continue;
+    // Use the enhanced token service for cleanup
+    const { tokenService } = require('./lib/tokenService');
+    
+    // Get all active users and blacklist their tokens
+    const activeUsers = await prisma.salesRep.findMany({
+      where: {
+        status: 'ACTIVE'
+      },
+      select: {
+        id: true
       }
+    });
 
-      // Blacklist the batch
-      const result = await prisma.token.updateMany({
-        where: {
-          id: {
-            in: tokens.map(t => t.id)
-          }
-        },
-        data: {
-          blacklisted: true
+    let processedCount = 0;
+    
+    // Process users in smaller batches to prevent lock timeouts
+    const BATCH_SIZE = 10;
+    for (let i = 0; i < activeUsers.length; i += BATCH_SIZE) {
+      const userBatch = activeUsers.slice(i, i + BATCH_SIZE);
+      
+      // Process each user in the batch
+      for (const user of userBatch) {
+        try {
+          const result = await tokenService.blacklistTokens(user.id);
+          processedCount += result.count;
+        } catch (error) {
+          console.error(`Failed to blacklist tokens for user ${user.id}:`, error.message);
         }
-      });
-
-      processedCount += result.count;
-      console.log(`✅ Processed batch of ${result.count} tokens`);
-
-      // Add a small delay between batches to prevent overwhelming the database
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+      
+      // Add delay between batches to prevent overwhelming the database
+      if (i + BATCH_SIZE < activeUsers.length) {
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
     }
 
-    console.log(`✅ Successfully blacklisted ${processedCount} tokens in total`);
+    console.log(`✅ Successfully blacklisted tokens for ${processedCount} total tokens across ${activeUsers.length} users`);
   } catch (err) {
     console.error('❌ Error blacklisting tokens:', err);
   }
@@ -118,14 +110,17 @@ const logoutJob = cron.schedule('0 0 * * *', async () => {
 
 // Token Cleanup Cron Job at 2 AM Africa/Nairobi time
 console.log('🧹 Setting up token cleanup cron job...');
-const cleanupJob = cron.schedule('0 2 * * *', async () => {
+
+const tokenCleanupJob = cron.schedule('0 2 * * *', async () => {
   const now = new Date();
   console.log(`🧹 Running token cleanup job at ${now.toLocaleString('en-KE', { timeZone: 'Africa/Nairobi' })}`);
-  
+
   try {
-    await cleanupTokens();
-  } catch (err) {
-    console.error('❌ Error during token cleanup:', err);
+    const { tokenService } = require('./lib/tokenService');
+    const deletedCount = await tokenService.cleanupExpiredTokens(50); // Use smaller batch size
+    console.log(`✅ Token cleanup completed: ${deletedCount} expired tokens removed`);
+  } catch (error) {
+    console.error('❌ Token cleanup error:', error);
   }
 }, {
   timezone: 'Africa/Nairobi'
@@ -135,7 +130,7 @@ const cleanupJob = cron.schedule('0 2 * * *', async () => {
 console.log('✅ Auto-logout cron job has been set up');
 console.log('✅ Token cleanup cron job has been set up');
 console.log('📋 Logout job is running:', logoutJob.running);
-console.log('📋 Cleanup job is running:', cleanupJob.running);
+console.log('📋 Cleanup job is running:', tokenCleanupJob.running);
 
 // Serve static files from uploads directory
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));

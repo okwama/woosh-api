@@ -147,9 +147,17 @@ const login = async (req, res) => {
   try {
     const { phoneNumber, password } = req.body;
 
+    // Step 1: Validate input
+    if (!phoneNumber || !password) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Phone number and password are required' 
+      });
+    }
+
     console.log('Login attempt for phoneNumber:', phoneNumber);
 
-    // Step 1: Find the user outside of a transaction
+    // Step 2: Find user by phone number
     const salesRep = await prisma.salesRep.findFirst({
       where: { phoneNumber },
       include: {
@@ -163,11 +171,6 @@ const login = async (req, res) => {
       return res.status(401).json({ success: false, message: 'Invalid phone number or password' });
     }
 
-    // Step 2: Check if account is deactivated
-    if (salesRep.status === 1) {
-      return res.status(403).json({ success: false, message: 'Account deactivated. Please contact administrator.' });
-    }
-
     // Step 3: Validate password
     const isPasswordValid = await bcrypt.compare(password, salesRep.password);
     console.log('Password valid:', isPasswordValid ? 'Yes' : 'No');
@@ -176,51 +179,12 @@ const login = async (req, res) => {
       return res.status(401).json({ success: false, message: 'Invalid phone number or password' });
     }
 
-    // Step 4: Use a transaction only for creating tokens
-    const { accessToken, refreshToken } = await prisma.$transaction(async (tx) => {
-      // Generate access token (short-lived - 8 hours)
-      const accessTokenPayload = {
-        userId: salesRep.id,
-        role: salesRep.role,
-        type: 'access'
-      };
-      
-      const accessToken = jwt.sign(accessTokenPayload, process.env.JWT_SECRET, { expiresIn: '8h' });
-      console.log('Access token generated successfully');
-
-      // Generate refresh token (long-lived - 7 days)
-      const refreshTokenPayload = {
-        userId: salesRep.id,
-        role: salesRep.role,
-        type: 'refresh'
-      };
-      
-      const refreshToken = jwt.sign(refreshTokenPayload, process.env.JWT_SECRET, { expiresIn: '7d' });
-      console.log('Refresh token generated successfully');
-
-      // Store both tokens in database
-      await tx.token.create({
-        data: {
-          token: accessToken,
-          salesRepId: salesRep.id,
-          tokenType: 'access',
-          expiresAt: new Date(Date.now() + 8 * 60 * 60 * 1000) // 8 hours
-        }
-      });
-
-      await tx.token.create({
-        data: {
-          token: refreshToken,
-          salesRepId: salesRep.id,
-          tokenType: 'refresh',
-          expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) // 7 days
-        }
-      });
-
-      console.log('Tokens stored in database');
-
-      return { accessToken, refreshToken };
-    });
+    // Step 4: Use the enhanced token service for token creation
+    const { tokenService } = require('../lib/tokenService');
+    
+    console.log('Generating tokens for user:', salesRep.id);
+    const { accessToken, refreshToken } = await tokenService.refreshTokens(salesRep.id, salesRep.role);
+    console.log('Tokens generated successfully');
 
     // Return user and tokens
     res.json({
@@ -255,16 +219,10 @@ const login = async (req, res) => {
 
 const logout = async (req, res) => {
   try {
-    // Blacklist all tokens (both access and refresh) for the current user in a single operation
-    const result = await prisma.token.updateMany({
-      where: { 
-        salesRepId: req.user.id,
-        blacklisted: false
-      },
-      data: { 
-        blacklisted: true 
-      }
-    });
+    // Use the enhanced token service for blacklisting tokens
+    const { tokenService } = require('../lib/tokenService');
+    
+    const result = await tokenService.blacklistTokens(req.user.id);
 
     console.log(`Blacklisted ${result.count} tokens for user ${req.user.id}`);
 

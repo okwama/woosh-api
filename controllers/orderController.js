@@ -704,6 +704,7 @@ const createOrder = asyncHandler(async (req, res) => {
               }
             },
             totalAmount: parseFloat((totalAmount || 0).toFixed(2)),
+            totalCost: new Prisma.Decimal("0.00"),
             comment: req.body.comment || '',
             customerType: req.body.customerType || 'RETAIL',
             customerId: req.body.customerId || '',

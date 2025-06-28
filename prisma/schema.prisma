@@ -114,7 +114,7 @@ model Manager {
 
 model Token {
   id          Int       @id @default(autoincrement())
-  token       String
+  token       String    @db.Text
   salesRepId  Int
   createdAt   DateTime  @default(now())
   expiresAt   DateTime
@@ -127,6 +127,10 @@ model Token {
   @@index([lastUsedAt])
   @@index([tokenType])
   @@index([salesRepId], map: "Token_userId_fkey")
+  @@index([expiresAt, blacklisted], map: "idx_expired_tokens")
+  @@index([id, lastUsedAt], map: "idx_last_used")
+  @@index([salesRepId, tokenType, blacklisted, expiresAt], map: "idx_token_validation")
+  @@index([salesRepId, tokenType, blacklisted], map: "idx_user_tokens")
 }
 
 model Regions {
