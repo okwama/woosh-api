@@ -17,10 +17,10 @@ exports.checkIn = async (req, res) => {
     // 2. Get client's timezone and current time
     const timezone = req.headers['timezone'] || 'UTC';
     const now = new Date();
-
+    
     // Convert to client's timezone for date
     const clientTime = new Date(now.toLocaleString('en-US', { timeZone: timezone }));
-
+    
     // Create date object for today in client's timezone
     const today = new Date(clientTime);
     today.setHours(0, 0, 0, 0);
@@ -32,32 +32,32 @@ exports.checkIn = async (req, res) => {
         managerId: manager.id,
         clientId: parseInt(clientId),
         checkInAt: {
-          gte: tenMinutesAgo,
-        },
+          gte: tenMinutesAgo
+        }
       },
       orderBy: {
-        checkInAt: 'desc',
-      },
+        checkInAt: 'desc'
+      }
     });
 
     if (recentCheckin) {
       const timeSinceLastCheckin = Math.floor((now - recentCheckin.checkInAt) / 1000 / 60);
       const minutesLeft = 10 - timeSinceLastCheckin;
-      return res.status(400).json({
+      return res.status(400).json({ 
         message: `Please wait ${minutesLeft} more minutes before checking in again at this location.`,
         lastCheckin: recentCheckin.checkInAt,
-        cooldownMinutes: minutesLeft,
+        cooldownMinutes: minutesLeft
       });
     }
 
     // 4. Get today's check-ins count for visit number
     const todaysCheckins = await prisma.managerCheckin.findMany({
-      where: {
-        managerId: manager.id,
+      where: { 
+        managerId: manager.id, 
         clientId: parseInt(clientId),
-        date: today,
+        date: today
       },
-      orderBy: { checkInAt: 'asc' },
+      orderBy: { checkInAt: 'asc' }
     });
 
     const visitNumber = todaysCheckins.length + 1;
@@ -83,7 +83,7 @@ exports.checkIn = async (req, res) => {
         notes,
         imageUrl,
         visitNumber,
-        timezone,
+        timezone
       },
     });
 
@@ -93,17 +93,17 @@ exports.checkIn = async (req, res) => {
       minute: '2-digit',
       second: '2-digit',
       hour12: true,
-      timeZone: timezone,
+      timeZone: timezone
     });
 
-    res.status(201).json({
+    res.status(201).json({ 
       message: `Checked in successfully (Visit #${visitNumber})`,
       checkin: {
         ...checkin,
         formattedTime,
-        timezone,
+        timezone
       },
-      visitNumber,
+      visitNumber
     });
   } catch (error) {
     console.error('Check-in error:', error);
@@ -133,19 +133,19 @@ exports.checkOut = async (req, res) => {
     const activeCheckin = await prisma.managerCheckin.findFirst({
       where: {
         managerId: manager.id,
-        checkOutAt: null, // Not checked out yet
+        checkOutAt: null,  // Not checked out yet
       },
       orderBy: {
-        checkInAt: 'desc', // Get the most recent one
+        checkInAt: 'desc'  // Get the most recent one
       },
       include: {
-        client: true, // Include client details
-      },
+        client: true  // Include client details
+      }
     });
 
     if (!activeCheckin) {
-      return res.status(400).json({
-        message: 'No active check-in found to check out from',
+      return res.status(400).json({ 
+        message: 'No active check-in found to check out from' 
       });
     }
 
@@ -155,18 +155,18 @@ exports.checkOut = async (req, res) => {
         managerId: manager.id,
         clientId: activeCheckin.clientId,
         checkOutAt: {
-          gte: tenMinutesAgo,
-        },
-      },
+          gte: tenMinutesAgo
+        }
+      }
     });
 
     if (recentCheckout) {
       const timeSinceLastCheckout = Math.floor((now - recentCheckout.checkOutAt) / 1000 / 60);
       const minutesLeft = 10 - timeSinceLastCheckout;
-      return res.status(400).json({
+      return res.status(400).json({ 
         message: `Please wait ${minutesLeft} more minutes before checking out from this location again.`,
         lastCheckout: recentCheckout.checkOutAt,
-        cooldownMinutes: minutesLeft,
+        cooldownMinutes: minutesLeft
       });
     }
 
@@ -176,7 +176,7 @@ exports.checkOut = async (req, res) => {
     // 5. Prepare update data
     const updateData = {
       checkOutAt: now,
-      visitDuration: visitDuration,
+      visitDuration: visitDuration
     };
 
     // Only add location if provided
@@ -188,7 +188,7 @@ exports.checkOut = async (req, res) => {
     // 6. Update check-in record
     const updatedCheckin = await prisma.managerCheckin.update({
       where: { id: activeCheckin.id },
-      data: updateData,
+      data: updateData
     });
 
     // 7. Format times in client's timezone
@@ -197,7 +197,7 @@ exports.checkOut = async (req, res) => {
       minute: '2-digit',
       second: '2-digit',
       hour12: true,
-      timeZone: timezone,
+      timeZone: timezone
     });
 
     const formattedCheckOutTime = now.toLocaleTimeString('en-US', {
@@ -205,7 +205,7 @@ exports.checkOut = async (req, res) => {
       minute: '2-digit',
       second: '2-digit',
       hour12: true,
-      timeZone: timezone,
+      timeZone: timezone
     });
 
     res.status(200).json({
@@ -216,8 +216,8 @@ exports.checkOut = async (req, res) => {
         formattedCheckInTime,
         formattedCheckOutTime,
         visitDuration,
-        timezone,
-      },
+        timezone
+      }
     });
   } catch (error) {
     console.error('Check-out error:', error);
@@ -229,7 +229,7 @@ exports.checkOut = async (req, res) => {
 exports.getClientLocation = async (req, res) => {
   try {
     const { clientId } = req.params;
-
+    
     const client = await prisma.clients.findUnique({
       where: { id: parseInt(clientId) },
       select: {
@@ -238,13 +238,13 @@ exports.getClientLocation = async (req, res) => {
         latitude: true,
         longitude: true,
         location: true,
-      },
+      }
     });
-
+    
     if (!client) {
       return res.status(404).json({ error: 'Client not found' });
     }
-
+    
     res.status(200).json(client);
   } catch (error) {
     console.error('Error getting client location:', error);
@@ -269,18 +269,18 @@ exports.getHistory = async (req, res) => {
 
     let dateFilter = {};
     const now = new Date();
-
+    
     if (startDate && endDate) {
       // Custom date range
       dateFilter = {
         date: {
           gte: new Date(startDate),
-          lte: new Date(endDate),
-        },
+          lte: new Date(endDate)
+        }
       };
     } else if (filter) {
       const startDate = new Date();
-
+      
       switch (filter) {
         case 'week':
           startDate.setDate(now.getDate() - 7);
@@ -292,12 +292,12 @@ exports.getHistory = async (req, res) => {
           startDate.setHours(0, 0, 0, 0);
           break;
       }
-
+      
       dateFilter = {
         date: {
           gte: startDate,
-          lte: now,
-        },
+          lte: now
+        }
       };
     }
 
@@ -305,7 +305,7 @@ exports.getHistory = async (req, res) => {
       prisma.managerCheckin.findMany({
         where: {
           managerId: manager.id,
-          ...dateFilter,
+          ...dateFilter
         },
         include: {
           client: {
@@ -325,7 +325,7 @@ exports.getHistory = async (req, res) => {
       prisma.managerCheckin.count({
         where: {
           managerId: manager.id,
-          ...dateFilter,
+          ...dateFilter
         },
       }),
     ]);
@@ -336,8 +336,8 @@ exports.getHistory = async (req, res) => {
         total,
         page: parseInt(page),
         totalPages: Math.ceil(total / limit),
-        hasMore: skip + history.length < total,
-      },
+        hasMore: skip + history.length < total
+      }
     });
   } catch (error) {
     console.error('Error fetching check-in history:', error);
@@ -361,10 +361,10 @@ exports.getTotalWorkingHours = async (req, res) => {
 
     let dateFilter = {};
     const now = new Date();
-
+    
     if (period) {
       const startDate = new Date();
-
+      
       switch (period) {
         case 'week':
           startDate.setDate(now.getDate() - 7);
@@ -376,12 +376,12 @@ exports.getTotalWorkingHours = async (req, res) => {
           startDate.setHours(0, 0, 0, 0);
           break;
       }
-
+      
       dateFilter = {
         date: {
           gte: startDate,
-          lte: now,
-        },
+          lte: now
+        }
       };
     }
 
@@ -389,7 +389,7 @@ exports.getTotalWorkingHours = async (req, res) => {
       where: {
         managerId: manager.id,
         checkOutAt: { not: null }, // Only count completed check-ins
-        ...dateFilter,
+        ...dateFilter
       },
       select: {
         checkInAt: true,
@@ -400,7 +400,7 @@ exports.getTotalWorkingHours = async (req, res) => {
     let totalMinutes = 0;
     let completedVisits = 0;
 
-    checkins.forEach((checkin) => {
+    checkins.forEach(checkin => {
       if (checkin.checkInAt && checkin.checkOutAt) {
         const duration = checkin.checkOutAt.getTime() - checkin.checkInAt.getTime();
         totalMinutes += duration / (1000 * 60); // Convert milliseconds to minutes

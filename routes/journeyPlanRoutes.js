@@ -1,12 +1,6 @@
 const express = require('express');
 const { authenticateToken } = require('../middleware/authMiddleware');
-const {
-  createJourneyPlan,
-  updateJourneyPlan,
-  getJourneyPlans,
-  deleteJourneyPlan,
-  checkoutJourneyPlan,
-} = require('../controllers/journeyPlanController');
+const { createJourneyPlan, updateJourneyPlan, getJourneyPlans, deleteJourneyPlan } = require('../controllers/journeyPlanController');
 
 const router = express.Router();
 
@@ -18,9 +12,6 @@ router.post('/', createJourneyPlan);
 
 // Update a journey plan
 router.put('/:journeyId', updateJourneyPlan);
-
-// Fast checkout endpoint
-router.post('/:journeyId/checkout', checkoutJourneyPlan);
 
 // Get all journey plans for the authenticated user
 router.get('/', getJourneyPlans);

@@ -5,7 +5,7 @@ const { uploadFile } = require('../lib/uploadService');
 const updateProfilePhoto = async (req, res) => {
   try {
     const salesRepId = req.user.id;
-
+    
     if (!req.file) {
       return res.status(400).json({ message: 'No file uploaded' });
     }
@@ -14,14 +14,14 @@ const updateProfilePhoto = async (req, res) => {
     const result = await uploadFile(req.file, {
       folder: 'whoosh/profile_photos',
       type: 'profile',
-      generateThumbnail: true,
+      generateThumbnail: true
     });
 
     // Update user's photoUrl in database
     const updatedUser = await prisma.salesRep.update({
       where: { id: salesRepId },
-      data: {
-        photoUrl: result.main.url,
+      data: { 
+        photoUrl: result.main.url
       },
       select: {
         id: true,
@@ -59,7 +59,7 @@ const getProfile = async (req, res) => {
         region: true,
         region_id: true,
         country: true,
-        countryId: true,
+        countryId: true
       },
     });
 
@@ -132,7 +132,7 @@ const updatePassword = async (req, res) => {
 const getSalesReps = async (req, res) => {
   try {
     const { route_id } = req.query;
-
+    
     const where = {};
     if (route_id) {
       where.route_id = parseInt(route_id);
@@ -152,7 +152,7 @@ const getSalesReps = async (req, res) => {
         route_id: true,
         route: true,
         country: true,
-        countryId: true,
+        countryId: true
       },
     });
 

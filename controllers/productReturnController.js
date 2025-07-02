@@ -28,19 +28,17 @@ const createProductReturn = async (req, res) => {
     // 3. Create ProductReturnItems if provided
     let items = [];
     if (Array.isArray(details.items)) {
-      items = await Promise.all(
-        details.items.map((item) =>
-          prisma.productReturnItem.create({
-            data: {
-              productReturnId: productReturn.id,
-              productName: item.productName || 'Unknown',
-              quantity: item.quantity || 0,
-              reason: item.reason || '',
-              imageUrl: item.imageUrl || '',
-            },
-          })
-        )
-      );
+      items = await Promise.all(details.items.map(item =>
+        prisma.productReturnItem.create({
+          data: {
+            productReturnId: productReturn.id,
+            productName: item.productName || 'Unknown',
+            quantity: item.quantity || 0,
+            reason: item.reason || '',
+            imageUrl: item.imageUrl || '',
+          },
+        })
+      ));
     }
 
     res.status(201).json({ report, productReturn, items });
@@ -55,7 +53,7 @@ const updateProductReturn = async (req, res) => {
   try {
     const updated = await prisma.productReturn.update({
       where: { id: parseInt(id) },
-      data: { productName, quantity, reason, imageUrl },
+      data: { productName, quantity, reason, imageUrl }
     });
     res.json(updated);
   } catch (error) {

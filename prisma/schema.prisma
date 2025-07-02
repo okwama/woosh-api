@@ -64,9 +64,6 @@ model SalesRep {
   Manager              Manager?
   Task                 Task[]
 
-  @@index([status, role], map: "idx_status_role")
-  @@index([countryId, region_id, route_id], map: "idx_location")
-  @@index([managerId], map: "idx_manager")
   @@index([countryId], map: "SalesRep_countryId_fkey")
 }
 
@@ -117,19 +114,23 @@ model Manager {
 
 model Token {
   id          Int       @id @default(autoincrement())
-  token       String    @db.VarChar(255)
+  token       String    @db.Text
   salesRepId  Int
   createdAt   DateTime  @default(now())
   expiresAt   DateTime
   blacklisted Boolean   @default(false)
   lastUsedAt  DateTime?
-  tokenType   String    @default("access") @db.VarChar(10)
+  tokenType   String    @default("access")
   user        SalesRep  @relation(fields: [salesRepId], references: [id], onDelete: Cascade)
 
-  @@index([salesRepId, tokenType, blacklisted, expiresAt], map: "idx_token_lookup")
-  @@index([expiresAt, blacklisted], map: "idx_token_cleanup")
-  @@index([token(length: 64)], map: "idx_token_value")
+  @@index([blacklisted])
+  @@index([lastUsedAt])
+  @@index([tokenType])
   @@index([salesRepId], map: "Token_userId_fkey")
+  @@index([expiresAt, blacklisted], map: "idx_expired_tokens")
+  @@index([id, lastUsedAt], map: "idx_last_used")
+  @@index([salesRepId, tokenType, blacklisted, expiresAt], map: "idx_token_validation")
+  @@index([salesRepId, tokenType, blacklisted], map: "idx_user_tokens")
 }
 
 model Regions {
@@ -308,44 +309,43 @@ model PurchaseHistory {
 }
 
 model Clients {
-  id                      Int                       @id @default(autoincrement())
-  name                    String
-  address                 String?
-  latitude                Float?
-  longitude               Float?
-  balance                 Decimal?                  @db.Decimal(11, 2)
-  email                   String?
-  region_id               Int
-  region                  String
-  route_id                Int?
-  route_name              String?
-  route_id_update         Int?
-  route_name_update       String?                   @db.VarChar(100)
-  contact                 String
-  tax_pin                 String?
-  location                String?
-  status                  Int                       @default(0)
-  client_type             Int?
-  outlet_account          Int?
-  countryId               Int
-  added_by                Int?
-  created_at              DateTime?                 @default(now())
-  ClientPayment           ClientPayment[]
-  country                 Country                   @relation(fields: [countryId], references: [id])
-  feedbackReports         FeedbackReport[]
-  journeyPlans            JourneyPlan[]
-  checkins                ManagerCheckin[]
-  MyOrder                 MyOrder[]
-  Product                 Product[]
-  productReports          ProductReport[]
-  productReturns          ProductReturn[]
-  productReturnItems      ProductReturnItem[]
-  productsSamples         ProductsSample[]
-  productSampleItems      ProductsSampleItem[]
-  reports                 Report[]
-  UpliftSale              UpliftSale[]
-  visibilityReports       VisibilityReport[]
-  manager_outlet_accounts manager_outlet_accounts[]
+  id                 Int                  @id @default(autoincrement())
+  name               String
+  address            String?
+  latitude           Float?
+  longitude          Float?
+  balance            Decimal?             @db.Decimal(11, 2)
+  email              String?
+  region_id          Int
+  region             String
+  route_id           Int?
+  route_name         String?
+  route_id_update    Int?
+  route_name_update  String?              @db.VarChar(100)
+  contact            String
+  tax_pin            String?
+  location           String?
+  status             Int                  @default(0)
+  client_type        Int?
+  outlet_account     Int?
+  countryId          Int
+  added_by           Int?
+  created_at         DateTime?            @default(now())
+  ClientPayment      ClientPayment[]
+  country            Country              @relation(fields: [countryId], references: [id])
+  feedbackReports    FeedbackReport[]
+  journeyPlans       JourneyPlan[]
+  checkins           ManagerCheckin[]
+  MyOrder            MyOrder[]
+  Product            Product[]
+  productReports     ProductReport[]
+  productReturns     ProductReturn[]
+  productReturnItems ProductReturnItem[]
+  productsSamples    ProductsSample[]
+  productSampleItems ProductsSampleItem[]
+  reports            Report[]
+  UpliftSale         UpliftSale[]
+  visibilityReports  VisibilityReport[]
 
   @@index([countryId], map: "Clients_countryId_fkey")
   @@index([countryId, status, route_id])
@@ -1566,8 +1566,6 @@ model sales_reps_g {
   key_channel_manager     Int
   distribution_manager    Int
   photoUrl                String?                   @default("")
-  pouches_targets         Int
-  vapes_targets           Int
   client_payments_g       client_payments_g[]
   feedback_reports_g      feedback_reports_g[]
   journey_plans_g         journey_plans_g[]
@@ -1902,25 +1900,6 @@ model outlet_accounts {
   id     Int    @id @default(autoincrement())
   name   String @db.VarChar(100)
   status Int
-
-  manager_outlet_accounts manager_outlet_accounts[]
-}
-
-model manager_outlet_accounts {
-  id                Int     @id @default(autoincrement())
-  outlet_account_id Int?
-  name              String  @db.VarChar(100)
-  image             String  @db.VarChar(255)
-  status            Int
-  client_id         Int
-  client            Clients @relation(fields: [client_id], references: [id])
-  phone             String  @db.VarChar(100)
-  email             String  @db.VarChar(100)
-  address           String  @db.VarChar(100)
-  type              Int
-  country           String  @db.VarChar(100)
-  password          String  @db.VarChar(100)
-  outlet_accounts   outlet_accounts? @relation(fields: [outlet_account_id], references: [id])
 }
 
 model outlet_categories {

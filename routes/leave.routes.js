@@ -16,4 +16,4 @@ router.get('/all', auth, isAdmin, leaveController.getAllLeaves);
 // Update leave status (admin only)
 router.patch('/:id/status', auth, isAdmin, leaveController.updateLeaveStatus);
 
-module.exports = router;
+module.exports = router; 

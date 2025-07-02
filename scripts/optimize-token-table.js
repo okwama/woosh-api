@@ -8,7 +8,7 @@ async function optimizeTokenTable() {
 
     // 1. Add composite indexes for better query performance (excluding token field to avoid key length issues)
     console.log('📊 Adding composite indexes...');
-
+    
     // Index for user token queries
     await prisma.$executeRaw`
       CREATE INDEX IF NOT EXISTS idx_user_tokens 
@@ -42,28 +42,28 @@ async function optimizeTokenTable() {
 
     // 3. Clean up any orphaned or invalid tokens
     console.log('🧹 Cleaning up invalid tokens...');
-
+    
     // Remove tokens with past expiration dates
     const expiredResult = await prisma.token.deleteMany({
       where: {
         expiresAt: {
-          lt: new Date(),
-        },
-      },
+          lt: new Date()
+        }
+      }
     });
     console.log(`✅ Removed ${expiredResult.count} expired tokens`);
 
     // 4. Get current token statistics
     console.log('📊 Current token statistics:');
-
+    
     const stats = await prisma.token.groupBy({
       by: ['tokenType', 'blacklisted'],
       _count: {
-        id: true,
-      },
+        id: true
+      }
     });
 
-    stats.forEach((stat) => {
+    stats.forEach(stat => {
       const type = stat.tokenType || 'null';
       const status = stat.blacklisted ? 'blacklisted' : 'active';
       console.log(`  ${type} tokens (${status}): ${stat._count.id}`);
@@ -71,33 +71,33 @@ async function optimizeTokenTable() {
 
     // 5. Check for potential issues
     console.log('🔍 Checking for potential issues...');
-
+    
     const duplicateTokens = await prisma.token.groupBy({
       by: ['token'],
       _count: {
-        id: true,
+        id: true
       },
       having: {
         id: {
           _count: {
-            gt: 1,
-          },
-        },
-      },
+            gt: 1
+          }
+        }
+      }
     });
 
     if (duplicateTokens.length > 0) {
       console.warn(`⚠️  Found ${duplicateTokens.length} duplicate tokens`);
-
+      
       // Remove duplicates (keep the most recent one)
       for (const duplicate of duplicateTokens) {
         const tokens = await prisma.token.findMany({
           where: {
-            token: duplicate.token,
+            token: duplicate.token
           },
           orderBy: {
-            createdAt: 'desc',
-          },
+            createdAt: 'desc'
+          }
         });
 
         // Keep the first (most recent) one, delete the rest
@@ -106,13 +106,11 @@ async function optimizeTokenTable() {
           await prisma.token.deleteMany({
             where: {
               id: {
-                in: toDelete.map((t) => t.id),
-              },
-            },
+                in: toDelete.map(t => t.id)
+              }
+            }
           });
-          console.log(
-            `✅ Removed ${toDelete.length} duplicate tokens for token: ${duplicate.token.substring(0, 20)}...`
-          );
+          console.log(`✅ Removed ${toDelete.length} duplicate tokens for token: ${duplicate.token.substring(0, 20)}...`);
         }
       }
     } else {
@@ -129,6 +127,7 @@ async function optimizeTokenTable() {
     console.log('    * Reduced transaction timeouts');
     console.log('    * Smaller batch sizes for cleanup operations');
     console.log('    * Better error handling and logging');
+
   } catch (error) {
     console.error('❌ Error optimizing token table:', error);
   } finally {
@@ -137,4 +136,4 @@ async function optimizeTokenTable() {
 }
 
 // Run the optimization
-optimizeTokenTable();
+optimizeTokenTable(); 

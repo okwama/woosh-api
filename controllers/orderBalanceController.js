@@ -14,9 +14,9 @@ const updateOrderBalances = asyncHandler(async (req, res) => {
     const unpaidOrders = await prisma.myOrder.findMany({
       where: {
         clientId: parseInt(clientId),
-        balance: { gt: 0 },
+        balance: { gt: 0 }
       },
-      orderBy: { createdAt: 'asc' },
+      orderBy: { createdAt: 'asc' }
     });
 
     if (unpaidOrders.length === 0) {
@@ -28,8 +28,8 @@ const updateOrderBalances = asyncHandler(async (req, res) => {
     const amount = parseFloat(paymentAmount);
 
     if (amount > totalOutstanding) {
-      return res.status(400).json({
-        error: `Payment amount (${amount}) exceeds total outstanding balance (${totalOutstanding})`,
+      return res.status(400).json({ 
+        error: `Payment amount (${amount}) exceeds total outstanding balance (${totalOutstanding})` 
       });
     }
 
@@ -48,8 +48,8 @@ const updateOrderBalances = asyncHandler(async (req, res) => {
         where: { id: order.id },
         data: {
           balance: order.balance - paymentForOrder,
-          amountPaid: order.amountPaid + paymentForOrder,
-        },
+          amountPaid: order.amountPaid + paymentForOrder
+        }
       });
 
       updatedOrders.push(updatedOrder);
@@ -59,19 +59,19 @@ const updateOrderBalances = asyncHandler(async (req, res) => {
     const newTotalOutstanding = await prisma.myOrder.aggregate({
       where: {
         clientId: parseInt(clientId),
-        balance: { gt: 0 },
+        balance: { gt: 0 }
       },
       _sum: {
-        balance: true,
-      },
+        balance: true
+      }
     });
 
     // Update client balance to reflect total from MyOrder
     const updatedClient = await prisma.clients.update({
       where: { id: parseInt(clientId) },
       data: {
-        balance: (newTotalOutstanding._sum.balance || 0).toString(),
-      },
+        balance: (newTotalOutstanding._sum.balance || 0).toString()
+      }
     });
 
     res.json({
@@ -80,8 +80,8 @@ const updateOrderBalances = asyncHandler(async (req, res) => {
         client: updatedClient,
         updatedOrders,
         previousBalance: totalOutstanding,
-        newBalance: newTotalOutstanding._sum.balance || 0,
-      },
+        newBalance: newTotalOutstanding._sum.balance || 0
+      }
     });
   } catch (error) {
     console.error('Error updating order balances:', error);
@@ -98,9 +98,9 @@ const getClientOrderBalances = asyncHandler(async (req, res) => {
     const orders = await prisma.myOrder.findMany({
       where: {
         clientId: parseInt(clientId),
-        balance: { gt: 0 },
+        balance: { gt: 0 }
       },
-      orderBy: { createdAt: 'asc' },
+      orderBy: { createdAt: 'asc' }
     });
 
     // Calculate total from MyOrder balances
@@ -110,8 +110,8 @@ const getClientOrderBalances = asyncHandler(async (req, res) => {
       success: true,
       data: {
         orders,
-        totalOutstanding,
-      },
+        totalOutstanding
+      }
     });
   } catch (error) {
     console.error('Error getting client order balances:', error);
@@ -121,5 +121,5 @@ const getClientOrderBalances = asyncHandler(async (req, res) => {
 
 module.exports = {
   updateOrderBalances,
-  getClientOrderBalances,
-};
+  getClientOrderBalances
+}; 

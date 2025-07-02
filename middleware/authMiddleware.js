@@ -2,13 +2,12 @@ const jwt = require('jsonwebtoken');
 const prisma = require('../lib/prisma');
 const { withConnectionRetry } = require('../lib/connectionManager');
 const { tokenService } = require('../lib/tokenService');
-const { redisService } = require('../lib/redisService');
 
 // Configuration for non-critical operations
 const CONFIG = {
   ENABLE_LAST_USED_UPDATE: process.env.ENABLE_LAST_USED_UPDATE !== 'false', // Default to true
   LAST_USED_UPDATE_RETRIES: 1, // Minimal retries for non-critical operation
-  LAST_USED_UPDATE_DELAY: 25, // Short delay
+  LAST_USED_UPDATE_DELAY: 25 // Short delay
 };
 
 // Circuit breaker for database operations
@@ -48,7 +47,7 @@ class CircuitBreaker {
   onFailure() {
     this.failureCount++;
     this.lastFailureTime = Date.now();
-
+    
     if (this.failureCount >= this.failureThreshold) {
       this.state = 'OPEN';
     }
@@ -65,17 +64,16 @@ const retryOperation = async (operation, maxRetries = 3, delay = 100) => {
       return await operation();
     } catch (error) {
       const isLockTimeout = error.message && error.message.includes('Lock wait timeout');
-      const isConnectionError =
-        error.code === 'P1001' || error.code === 'P1008' || error.code === 'P1017';
+      const isConnectionError = error.code === 'P1001' || error.code === 'P1008' || error.code === 'P1017';
       const isRetryable = isLockTimeout || error.code === 'P2002' || isConnectionError; // Unique constraint, lock timeout, or connection issues
-
+      
       if (attempt === maxRetries || !isRetryable) {
         throw error;
       }
-
+      
       // Exponential backoff with jitter
       const waitTime = delay * Math.pow(2, attempt - 1) + Math.random() * 100;
-      await new Promise((resolve) => setTimeout(resolve, waitTime));
+      await new Promise(resolve => setTimeout(resolve, waitTime));
     }
   }
 };
@@ -94,48 +92,49 @@ const optimisticUpdate = async (operation, fallback = null) => {
 const generateNewTokens = async (userId, role) => {
   try {
     // Generate new access token
-    const newAccessToken = jwt.sign({ userId, role, type: 'access' }, process.env.JWT_SECRET, {
-      expiresIn: '8h',
-    });
+    const newAccessToken = jwt.sign(
+      { userId, role, type: 'access' },
+      process.env.JWT_SECRET,
+      { expiresIn: '8h' }
+    );
 
     // Generate new refresh token
-    const newRefreshToken = jwt.sign({ userId, role, type: 'refresh' }, process.env.JWT_SECRET, {
-      expiresIn: '7d',
-    });
+    const newRefreshToken = jwt.sign(
+      { userId, role, type: 'refresh' },
+      process.env.JWT_SECRET,
+      { expiresIn: '7d' }
+    );
 
     // Store both tokens in database atomically
     const tokens = await retryOperation(async () => {
-      return await prisma.$transaction(
-        async (tx) => {
-          // Create access token
-          const accessToken = await tx.token.create({
-            data: {
-              token: newAccessToken,
-              salesRepId: userId,
-              tokenType: 'access',
-              expiresAt: new Date(Date.now() + 8 * 60 * 60 * 1000), // 8 hours
-              blacklisted: false,
-            },
-          });
+      return await prisma.$transaction(async (tx) => {
+        // Create access token
+        const accessToken = await tx.token.create({
+          data: {
+            token: newAccessToken,
+            salesRepId: userId,
+            tokenType: 'access',
+            expiresAt: new Date(Date.now() + 8 * 60 * 60 * 1000), // 8 hours
+            blacklisted: false
+          }
+        });
 
-          // Create refresh token
-          const refreshToken = await tx.token.create({
-            data: {
-              token: newRefreshToken,
-              salesRepId: userId,
-              tokenType: 'refresh',
-              expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
-              blacklisted: false,
-            },
-          });
+        // Create refresh token
+        const refreshToken = await tx.token.create({
+          data: {
+            token: newRefreshToken,
+            salesRepId: userId,
+            tokenType: 'refresh',
+            expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
+            blacklisted: false
+          }
+        });
 
-          return { accessToken, refreshToken };
-        },
-        {
-          maxWait: 5000, // 5 second max wait for transaction
-          timeout: 10000, // 10 second timeout
-        }
-      );
+        return { accessToken, refreshToken };
+      }, {
+        maxWait: 5000, // 5 second max wait for transaction
+        timeout: 10000  // 10 second timeout
+      });
     });
 
     return { newAccessToken, newRefreshToken };
@@ -155,27 +154,27 @@ class ResponseCache {
   get(key) {
     const item = this.cache.get(key);
     if (!item) return null;
-
+    
     const now = Date.now();
     if (now > item.expiresAt) {
       this.cache.delete(key);
       return null;
     }
-
+    
     return item.data;
   }
 
   set(key, data, ttl = this.defaultTTL) {
     this.cache.set(key, {
       data,
-      expiresAt: Date.now() + ttl,
+      expiresAt: Date.now() + ttl
     });
   }
 
   // Stale-while-revalidate pattern
   async getOrFetch(key, fetchFn, ttl = this.defaultTTL) {
     const cached = this.get(key);
-
+    
     if (cached) {
       // Return cached data immediately, then refresh in background
       setImmediate(async () => {
@@ -188,7 +187,7 @@ class ResponseCache {
       });
       return cached;
     }
-
+    
     // No cache, fetch fresh data
     try {
       const fresh = await fetchFn();
@@ -205,8 +204,7 @@ const responseCache = new ResponseCache();
 
 // Auth failure tracking for emergency fallback
 class AuthFailureTracker {
-  constructor(failureThreshold = 10, windowMs = 300000) {
-    // 5 minutes window
+  constructor(failureThreshold = 10, windowMs = 300000) { // 5 minutes window
     this.failureThreshold = failureThreshold;
     this.windowMs = windowMs;
     this.failures = [];
@@ -219,13 +217,13 @@ class AuthFailureTracker {
 
   recordFailure() {
     const now = Date.now();
-
+    
     // Clean old failures
-    this.failures = this.failures.filter((time) => now - time < this.windowMs);
-
+    this.failures = this.failures.filter(time => now - time < this.windowMs);
+    
     // Add new failure
     this.failures.push(now);
-
+    
     // Check if we should enter emergency mode
     if (this.failures.length >= this.failureThreshold && !this.emergencyMode) {
       this.enterEmergencyMode();
@@ -235,7 +233,7 @@ class AuthFailureTracker {
   recordSuccess() {
     // Clear failures on success
     this.failures = [];
-
+    
     // Exit emergency mode if we're in it
     if (this.emergencyMode) {
       this.exitEmergencyMode();
@@ -245,11 +243,9 @@ class AuthFailureTracker {
   enterEmergencyMode() {
     this.emergencyMode = true;
     this.emergencyModeStart = Date.now();
-    console.warn(
-      '🚨 EMERGENCY MODE: Auth system failing, allowing requests without authentication'
-    );
+    console.warn('🚨 EMERGENCY MODE: Auth system failing, allowing requests without authentication');
     console.warn(`🚨 Emergency mode will last for ${this.emergencyModeDuration / 60000} minutes`);
-
+    
     // Log to external monitoring if available
     if (process.env.EMERGENCY_ALERT_WEBHOOK) {
       fetch(process.env.EMERGENCY_ALERT_WEBHOOK, {
@@ -259,9 +255,9 @@ class AuthFailureTracker {
           event: 'emergency_mode_activated',
           timestamp: new Date().toISOString(),
           failure_count: this.failures.length,
-          message: 'Authentication system is failing - emergency mode activated',
-        }),
-      }).catch((err) => console.warn('Failed to send emergency alert:', err.message));
+          message: 'Authentication system is failing - emergency mode activated'
+        })
+      }).catch(err => console.warn('Failed to send emergency alert:', err.message));
     }
   }
 
@@ -273,13 +269,13 @@ class AuthFailureTracker {
 
   isEmergencyMode() {
     if (!this.emergencyMode) return false;
-
+    
     // Check if emergency mode has expired
     if (Date.now() - this.emergencyModeStart > this.emergencyModeDuration) {
       this.exitEmergencyMode();
       return false;
     }
-
+    
     return true;
   }
 
@@ -289,43 +285,43 @@ class AuthFailureTracker {
 
   getEmergencyModeStatus() {
     if (!this.emergencyMode) return null;
-
+    
     const elapsed = Date.now() - this.emergencyModeStart;
     const remaining = this.emergencyModeDuration - elapsed;
-
+    
     return {
       active: true,
       elapsed: Math.floor(elapsed / 1000),
       remaining: Math.floor(remaining / 1000),
-      failureCount: this.failures.length,
+      failureCount: this.failures.length
     };
   }
 
   recordEmergencyUsage(req) {
     this.emergencyUsageCount++;
-
+    
     const usage = {
       timestamp: new Date().toISOString(),
       method: req.method,
       path: req.path,
       ip: req.ip || req.connection.remoteAddress,
       userAgent: req.get('User-Agent'),
-      count: this.emergencyUsageCount,
+      count: this.emergencyUsageCount
     };
-
+    
     this.emergencyUsageLog.push(usage);
-
+    
     // Keep only last 100 entries
     if (this.emergencyUsageLog.length > 100) {
       this.emergencyUsageLog = this.emergencyUsageLog.slice(-100);
     }
-
+    
     // Log to console for monitoring
     console.warn(`🚨 Emergency mode usage #${this.emergencyUsageCount}:`, {
       method: req.method,
       path: req.path,
       ip: req.ip || req.connection.remoteAddress,
-      timestamp: new Date().toISOString(),
+      timestamp: new Date().toISOString()
     });
   }
 
@@ -334,7 +330,7 @@ class AuthFailureTracker {
       totalUsage: this.emergencyUsageCount,
       recentUsage: this.emergencyUsageLog.slice(-10), // Last 10 usages
       isActive: this.emergencyMode,
-      failureCount: this.failures.length,
+      failureCount: this.failures.length
     };
   }
 }
@@ -347,36 +343,32 @@ const authenticateToken = async (req, res, next) => {
   try {
     // Check if we're in emergency mode
     if (authFailureTracker.isEmergencyMode()) {
-      console.warn(
-        '🚨 EMERGENCY MODE: Bypassing authentication for request:',
-        req.method,
-        req.path
-      );
-
+      console.warn('🚨 EMERGENCY MODE: Bypassing authentication for request:', req.method, req.path);
+      
       // Track emergency mode usage
       authFailureTracker.recordEmergencyUsage(req);
-
+      
       // Set emergency mode headers
       res.setHeader('X-Emergency-Mode', 'true');
       res.setHeader('X-Auth-Bypassed', 'true');
-
+      
       // Create a minimal user object for emergency mode
       req.user = {
         id: 'emergency-user',
         role: 'EMERGENCY',
         name: 'Emergency Access',
-        emergencyMode: true,
+        emergencyMode: true
       };
       req.token = 'emergency-token';
       req.tokensRefreshed = false;
       req.emergencyMode = true;
-
+      
       // Set security headers
       res.setHeader('X-Content-Type-Options', 'nosniff');
       res.setHeader('X-Frame-Options', 'DENY');
       res.setHeader('X-XSS-Protection', '1; mode=block');
       res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
-
+      
       next();
       return;
     }
@@ -393,21 +385,21 @@ const authenticateToken = async (req, res, next) => {
     let decoded;
     try {
       decoded = jwt.verify(token, process.env.JWT_SECRET);
-
+      
       // Check if it's an access token
       if (decoded.type !== 'access') {
         authFailureTracker.recordFailure();
-        return res.status(401).json({
+        return res.status(401).json({ 
           error: 'Invalid token type. Access token required.',
-          code: 'INVALID_TOKEN_TYPE',
+          code: 'INVALID_TOKEN_TYPE'
         });
       }
     } catch (jwtError) {
       authFailureTracker.recordFailure();
       if (jwtError.name === 'TokenExpiredError') {
-        return res.status(401).json({
+        return res.status(401).json({ 
           error: 'Access token expired. Please refresh your token.',
-          code: 'TOKEN_EXPIRED',
+          code: 'TOKEN_EXPIRED'
         });
       }
       return res.status(401).json({ error: 'Invalid token' });
@@ -416,7 +408,7 @@ const authenticateToken = async (req, res, next) => {
     // Try to check token in database
     let tokenRecord = null;
     let dbAvailable = true;
-
+    
     try {
       // Use optimized token service for validation
       tokenRecord = await tokenService.validateToken(token, decoded.userId, 'access');
@@ -427,19 +419,16 @@ const authenticateToken = async (req, res, next) => {
 
     // If database is available but token not found, try to refresh tokens
     if (dbAvailable && !tokenRecord) {
-      console.log(
-        'Token not found in database but JWT is valid, attempting token refresh for user:',
-        decoded.userId
-      );
-
+      console.log('Token not found in database but JWT is valid, attempting token refresh for user:', decoded.userId);
+      
       try {
         // Get user details first
         const user = await prisma.salesRep.findUnique({
           where: { id: decoded.userId },
           include: {
             Manager: true,
-            countryRelation: true,
-          },
+            countryRelation: true
+          }
         });
 
         if (!user) {
@@ -472,9 +461,9 @@ const authenticateToken = async (req, res, next) => {
         return;
       } catch (refreshError) {
         console.error('Failed to refresh tokens:', refreshError);
-        return res.status(401).json({
+        return res.status(401).json({ 
           error: 'Token validation failed. Please login again.',
-          code: 'TOKEN_REFRESH_FAILED',
+          code: 'TOKEN_REFRESH_FAILED'
         });
       }
     }
@@ -497,8 +486,8 @@ const authenticateToken = async (req, res, next) => {
                   where: { id: decoded.userId },
                   include: {
                     Manager: true,
-                    countryRelation: true,
-                  },
+                    countryRelation: true
+                  }
                 });
               }, 'user-fetch');
             },
@@ -507,7 +496,7 @@ const authenticateToken = async (req, res, next) => {
               return {
                 id: decoded.userId,
                 role: decoded.role,
-                name: decoded.name || 'Unknown User',
+                name: decoded.name || 'Unknown User'
               };
             },
             'user-fetch'
@@ -521,7 +510,7 @@ const authenticateToken = async (req, res, next) => {
       user = {
         id: decoded.userId,
         role: decoded.role,
-        name: decoded.name || 'Unknown User',
+        name: decoded.name || 'Unknown User'
       };
     }
 
@@ -561,38 +550,35 @@ const createUser = async (req, res) => {
 
   try {
     // Create user and manager atomically
-    const result = await prisma.$transaction(
-      async (tx) => {
-        // Create the user first
-        const user = await tx.salesRep.create({
+    const result = await prisma.$transaction(async (tx) => {
+      // Create the user first
+      const user = await tx.salesRep.create({
+        data: {
+          name,
+          email,
+          phoneNumber,
+          password, // Ensure you hash the password before saving it
+          role,
+        },
+      });
+
+      // Create manager if role is manager
+      if (role === 'MANAGER') {
+        await tx.manager.create({
           data: {
-            name,
-            email,
-            phoneNumber,
-            password, // Ensure you hash the password before saving it
-            role,
+            userId: user.id,
+            email: managerDetails.email,
+            password: managerDetails.password,
+            department: managerDetails.department,
           },
         });
-
-        // Create manager if role is manager
-        if (role === 'MANAGER') {
-          await tx.manager.create({
-            data: {
-              userId: user.id,
-              email: managerDetails.email,
-              password: managerDetails.password,
-              department: managerDetails.department,
-            },
-          });
-        }
-
-        return user;
-      },
-      {
-        maxWait: 5000, // 5 second max wait
-        timeout: 10000, // 10 second timeout
       }
-    );
+
+      return user;
+    }, {
+      maxWait: 5000, // 5 second max wait
+      timeout: 10000  // 10 second timeout
+    });
 
     // Respond with the created user
     res.status(201).json(result);
@@ -606,18 +592,18 @@ const createUser = async (req, res) => {
 const handleTokenRefresh = (req, res, next) => {
   // Store the original send function
   const originalSend = res.send;
-
+  
   // Override the send function
-  res.send = function (data) {
+  res.send = function(data) {
     // Check if response has already been sent
     if (res.headersSent) {
       return; // Don't try to send again
     }
-
+    
     // If tokens were refreshed during this request, add them to the response
     if (req.tokensRefreshed && req.newTokens) {
       let responseData;
-
+      
       try {
         // Parse the response data if it's a string
         if (typeof data === 'string') {
@@ -625,17 +611,17 @@ const handleTokenRefresh = (req, res, next) => {
         } else {
           responseData = data;
         }
-
+        
         // Add token refresh information to the response
         responseData.tokensRefreshed = true;
         responseData.newAccessToken = req.newTokens.accessToken;
         responseData.newRefreshToken = req.newTokens.refreshToken;
-
+        
         // Set a custom header to indicate token refresh
         if (!res.headersSent) {
           res.setHeader('X-Token-Refreshed', 'true');
         }
-
+        
         // Call the original send with modified data
         return originalSend.call(this, JSON.stringify(responseData));
       } catch (parseError) {
@@ -645,15 +631,15 @@ const handleTokenRefresh = (req, res, next) => {
           res.setHeader('X-New-Access-Token', req.newTokens.accessToken);
           res.setHeader('X-New-Refresh-Token', req.newTokens.refreshToken);
         }
-
+        
         return originalSend.call(this, data);
       }
     }
-
+    
     // Call the original send function
     return originalSend.call(this, data);
   };
-
+  
   next();
 };
 
@@ -663,7 +649,7 @@ const withGracefulDegradation = async (criticalOperation, fallbackOperation, con
     return await dbCircuitBreaker.execute(criticalOperation);
   } catch (error) {
     console.warn(`Critical operation failed (${context}), using fallback:`, error.message);
-
+    
     if (fallbackOperation) {
       try {
         return await fallbackOperation();
@@ -672,7 +658,7 @@ const withGracefulDegradation = async (criticalOperation, fallbackOperation, con
         throw fallbackError;
       }
     }
-
+    
     throw error;
   }
 };
@@ -717,41 +703,8 @@ const getAuthConfig = () => {
     lastUsedUpdatesEnabled: CONFIG.ENABLE_LAST_USED_UPDATE,
     lastUsedUpdateRetries: CONFIG.LAST_USED_UPDATE_RETRIES,
     lastUsedUpdateDelay: CONFIG.LAST_USED_UPDATE_DELAY,
-    emergencyMode: authFailureTracker.getEmergencyModeStatus(),
+    emergencyMode: authFailureTracker.getEmergencyModeStatus()
   };
-};
-
-const validateToken = async (req, res, next) => {
-  try {
-    const token = req.headers.authorization?.split(' ')[1];
-    if (!token) {
-      return res.status(401).json({ message: 'No token provided' });
-    }
-
-    // Verify JWT
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-
-    // Check Redis cache in parallel with rate limit
-    const [tokenValid, rateAllowed] = await Promise.all([
-      redisService.get(`token:${decoded.type}:${decoded.userId}:${token}`),
-      checkRateLimit(`ratelimit:api:${decoded.userId}`, MAX_REQUESTS, RATE_LIMIT_WINDOW),
-    ]);
-
-    if (!tokenValid) {
-      return res.status(401).json({ message: 'Invalid or expired token' });
-    }
-
-    if (!rateAllowed) {
-      return res.status(429).json({ message: 'Rate limit exceeded' });
-    }
-
-    req.user = decoded;
-    req.token = token;
-    next();
-  } catch (error) {
-    console.error('Token validation error:', error);
-    res.status(401).json({ message: 'Invalid token', error: error.message });
-  }
 };
 
 // Export all functions
@@ -767,6 +720,5 @@ module.exports = {
   disableEmergencyMode,
   disableLastUsedUpdates,
   enableLastUsedUpdates,
-  getAuthConfig,
-  validateToken,
+  getAuthConfig
 };

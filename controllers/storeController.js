@@ -1,5 +1,6 @@
 const prisma = require('../lib/prisma');
 
+
 // @desc    Get all stores
 // @route   GET /api/stores
 // @access  Private
@@ -20,7 +21,7 @@ const getStores = async (req, res) => {
     // Add country filter if provided
     if (countryId) {
       whereClause.region = {
-        countryId: countryId,
+        countryId: countryId
       };
     }
 
@@ -54,4 +55,4 @@ const getStores = async (req, res) => {
 
 module.exports = {
   getStores,
-};
+}; 

@@ -4,7 +4,7 @@ const prisma = require('../lib/prisma');
 const getTasks = async (req, res) => {
   try {
     const salesRepId = parseInt(req.params.salesRepId);
-
+    
     const tasks = await prisma.task.findMany({
       where: {
         salesRepId: salesRepId,
@@ -36,7 +36,7 @@ const getTasks = async (req, res) => {
 const getTaskHistory = async (req, res) => {
   try {
     const salesRepId = parseInt(req.params.salesRepId);
-
+    
     const tasks = await prisma.task.findMany({
       where: {
         salesRepId: salesRepId,
@@ -187,4 +187,4 @@ module.exports = {
   completeTask,
   updateTaskStatus,
   deleteTask,
-};
+}; 

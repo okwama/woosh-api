@@ -23,9 +23,9 @@ const getRoutes = async (req, res) => {
     res.status(200).json(routes);
   } catch (error) {
     console.error('Error fetching routes:', error);
-    res.status(500).json({
+    res.status(500).json({ 
       error: 'Failed to fetch routes',
-      details: process.env.NODE_ENV === 'development' ? error.message : undefined,
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 };
@@ -72,9 +72,9 @@ const getRouteById = async (req, res) => {
     res.status(200).json(route);
   } catch (error) {
     console.error('Error fetching route:', error);
-    res.status(500).json({
+    res.status(500).json({ 
       error: 'Failed to fetch route',
-      details: process.env.NODE_ENV === 'development' ? error.message : undefined,
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 };
@@ -82,4 +82,4 @@ const getRouteById = async (req, res) => {
 module.exports = {
   getRoutes,
   getRouteById,
-};
+}; 

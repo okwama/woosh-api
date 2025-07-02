@@ -13,9 +13,9 @@ const getClientBalanceAge = asyncHandler(async (req, res) => {
     const oldestUnpaidOrder = await prisma.myOrder.findFirst({
       where: {
         clientId: parseInt(clientId),
-        balance: { gt: 0 }, // Only orders with remaining balance
+        balance: { gt: 0 }  // Only orders with remaining balance
       },
-      orderBy: { createdAt: 'asc' },
+      orderBy: { createdAt: 'asc' }
     });
 
     if (!oldestUnpaidOrder) {
@@ -25,24 +25,22 @@ const getClientBalanceAge = asyncHandler(async (req, res) => {
           hasBalance: false,
           balanceAge: 0,
           lastUpdated: null,
-          balance: 0,
-        },
+          balance: 0
+        }
       });
     }
 
-    const daysOld = Math.floor(
-      (new Date() - new Date(oldestUnpaidOrder.createdAt)) / (1000 * 60 * 60 * 24)
-    );
+    const daysOld = Math.floor((new Date() - new Date(oldestUnpaidOrder.createdAt)) / (1000 * 60 * 60 * 24));
 
     // Get total outstanding balance
     const totalBalance = await prisma.myOrder.aggregate({
       where: {
         clientId: parseInt(clientId),
-        balance: { gt: 0 },
+        balance: { gt: 0 }
       },
       _sum: {
-        balance: true,
-      },
+        balance: true
+      }
     });
 
     res.json({
@@ -56,15 +54,15 @@ const getClientBalanceAge = asyncHandler(async (req, res) => {
         oldestOrder: {
           id: oldestUnpaidOrder.id,
           createdAt: oldestUnpaidOrder.createdAt,
-          balance: oldestUnpaidOrder.balance,
-        },
-      },
+          balance: oldestUnpaidOrder.balance
+        }
+      }
     });
   } catch (error) {
     console.error('Error getting client balance age:', error);
     res.status(500).json({
       success: false,
-      error: 'Failed to get client balance age',
+      error: 'Failed to get client balance age'
     });
   }
 });
@@ -76,28 +74,26 @@ const hasOldBalance = async (clientId) => {
     const oldestUnpaidOrder = await prisma.myOrder.findFirst({
       where: {
         clientId: parseInt(clientId),
-        balance: { gt: 0 }, // Only orders with remaining balance
+        balance: { gt: 0 }  // Only orders with remaining balance
       },
-      orderBy: { createdAt: 'asc' },
+      orderBy: { createdAt: 'asc' }
     });
 
     if (!oldestUnpaidOrder) {
       return { hasOldBalance: false };
     }
 
-    const daysOld = Math.floor(
-      (new Date() - new Date(oldestUnpaidOrder.createdAt)) / (1000 * 60 * 60 * 24)
-    );
+    const daysOld = Math.floor((new Date() - new Date(oldestUnpaidOrder.createdAt)) / (1000 * 60 * 60 * 24));
 
     // Get total outstanding balance
     const totalBalance = await prisma.myOrder.aggregate({
       where: {
         clientId: parseInt(clientId),
-        balance: { gt: 0 },
+        balance: { gt: 0 }
       },
       _sum: {
-        balance: true,
-      },
+        balance: true
+      }
     });
 
     return {
@@ -108,8 +104,8 @@ const hasOldBalance = async (clientId) => {
       oldestOrder: {
         id: oldestUnpaidOrder.id,
         createdAt: oldestUnpaidOrder.createdAt,
-        balance: oldestUnpaidOrder.balance,
-      },
+        balance: oldestUnpaidOrder.balance
+      }
     };
   } catch (error) {
     console.error('Error checking old balance:', error);
@@ -119,5 +115,5 @@ const hasOldBalance = async (clientId) => {
 
 module.exports = {
   getClientBalanceAge,
-  hasOldBalance,
+  hasOldBalance
 };

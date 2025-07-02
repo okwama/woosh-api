@@ -12,38 +12,34 @@ const checkAgedBalances = async () => {
     const clientsWithUnpaidOrders = await prisma.myOrder.groupBy({
       by: ['clientId'],
       where: {
-        balance: { gt: 0 }, // Only orders with remaining balance
-      },
+        balance: { gt: 0 }  // Only orders with remaining balance
+      }
     });
 
-    console.log(
-      `[Aged Balance Check] Found ${clientsWithUnpaidOrders.length} clients with unpaid orders`
-    );
+    console.log(`[Aged Balance Check] Found ${clientsWithUnpaidOrders.length} clients with unpaid orders`);
 
     for (const client of clientsWithUnpaidOrders) {
       const oldestUnpaidOrder = await prisma.myOrder.findFirst({
         where: {
           clientId: client.clientId,
-          balance: { gt: 0 },
+          balance: { gt: 0 }
         },
-        orderBy: { createdAt: 'asc' },
+        orderBy: { createdAt: 'asc' }
       });
 
       if (oldestUnpaidOrder) {
-        const daysOld = Math.floor(
-          (new Date() - new Date(oldestUnpaidOrder.createdAt)) / (1000 * 60 * 60 * 24)
-        );
-
+        const daysOld = Math.floor((new Date() - new Date(oldestUnpaidOrder.createdAt)) / (1000 * 60 * 60 * 24));
+        
         if (daysOld > OLD_BALANCE_THRESHOLD) {
           // Get total outstanding balance
           const totalBalance = await prisma.myOrder.aggregate({
             where: {
               clientId: client.clientId,
-              balance: { gt: 0 },
+              balance: { gt: 0 }
             },
             _sum: {
-              balance: true,
-            },
+              balance: true
+            }
           });
 
           // Record in client history
@@ -56,14 +52,12 @@ const checkAgedBalances = async () => {
               balance: totalBalance._sum.balance || 0,
               my_date: new Date().toISOString(),
               createdAt: new Date().toISOString(),
-              staff: 0, // System generated
-              reference: `Aged balance alert: ${daysOld} days old`,
-            },
+              staff: 0,  // System generated
+              reference: `Aged balance alert: ${daysOld} days old`
+            }
           });
 
-          console.log(
-            `[Aged Balance Alert] Client ${client.clientId} has an aged balance of ${daysOld} days`
-          );
+          console.log(`[Aged Balance Alert] Client ${client.clientId} has an aged balance of ${daysOld} days`);
         }
       }
     }
@@ -83,5 +77,5 @@ cron.schedule('0 0 * * *', () => {
 // Export for testing purposes
 module.exports = {
   checkAgedBalances,
-  OLD_BALANCE_THRESHOLD,
-};
+  OLD_BALANCE_THRESHOLD
+}; 

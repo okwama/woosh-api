@@ -6,4 +6,4 @@ const { protect } = require('../middleware/authMiddleware');
 // Get all stores
 router.get('/', protect, getStores);
 
-module.exports = router;
+module.exports = router; 

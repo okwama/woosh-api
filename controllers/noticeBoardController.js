@@ -7,7 +7,7 @@ exports.getAllNotices = async (req, res) => {
 
     const notices = await prisma.noticeBoard.findMany({
       where: {
-        countryId: req.user.countryId,
+        countryId: req.user.countryId
       },
       orderBy: { createdAt: 'desc' },
       select: {
@@ -16,7 +16,7 @@ exports.getAllNotices = async (req, res) => {
         content: true,
         createdAt: true,
         updatedAt: true,
-        countryId: true,
+        countryId: true
       },
     });
 
@@ -38,8 +38,11 @@ exports.getNoticeById = async (req, res) => {
     }
 
     const notice = await prisma.noticeBoard.findFirst({
-      where: {
-        AND: [{ id }, { countryId: req.user.countryId }],
+      where: { 
+        AND: [
+          { id },
+          { countryId: req.user.countryId }
+        ]
       },
       select: {
         id: true,
@@ -47,7 +50,7 @@ exports.getNoticeById = async (req, res) => {
         content: true,
         createdAt: true,
         updatedAt: true,
-        countryId: true,
+        countryId: true
       },
     });
 
@@ -60,4 +63,4 @@ exports.getNoticeById = async (req, res) => {
     console.error('Error fetching notice:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
-};
+}; 

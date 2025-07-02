@@ -10,17 +10,17 @@ const middlewareDir = path.join(__dirname, '../middleware');
 function updateFile(filePath) {
   try {
     let content = fs.readFileSync(filePath, 'utf8');
-
+    
     // Check if file contains PrismaClient import
-    if (content.includes("const { PrismaClient } = require('@prisma/client');")) {
+    if (content.includes('const { PrismaClient } = require(\'@prisma/client\');')) {
       console.log(`Updating file: ${filePath}`);
-
+      
       // Replace PrismaClient import and initialization
       content = content.replace(
         /const { PrismaClient } = require\(['"]@prisma\/client['"]\);\s*const prisma = new PrismaClient\(\);/g,
-        "const { getPrismaClient } = require('../lib/prisma');\nconst prisma = getPrismaClient();"
+        'const { getPrismaClient } = require(\'../lib/prisma\');\nconst prisma = getPrismaClient();'
       );
-
+      
       // Write updated content back to file
       fs.writeFileSync(filePath, content, 'utf8');
       console.log(`Updated file: ${filePath}`);
@@ -33,11 +33,11 @@ function updateFile(filePath) {
 // Function to recursively scan directories
 function scanDirectory(directory) {
   const files = fs.readdirSync(directory);
-
-  files.forEach((file) => {
+  
+  files.forEach(file => {
     const filePath = path.join(directory, file);
     const stat = fs.statSync(filePath);
-
+    
     if (stat.isDirectory()) {
       scanDirectory(filePath);
     } else if (file.endsWith('.js')) {
@@ -56,4 +56,4 @@ scanDirectory(routesDir);
 console.log('Scanning middleware directory...');
 scanDirectory(middlewareDir);
 
-console.log('Done!');
+console.log('Done!'); 

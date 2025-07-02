@@ -12,9 +12,9 @@ const upload = multer({
       fieldname: file.fieldname,
       originalname: file.originalname,
       mimetype: file.mimetype,
-      size: file.size,
+      size: file.size
     });
-
+    
     const allowedTypes = ['.jpg', '.jpeg', '.png', '.pdf'];
     const ext = path.extname(file.originalname).toLowerCase();
 
@@ -23,10 +23,10 @@ const upload = multer({
     } else {
       cb(new Error(`Invalid file type: ${ext}. Only JPG, JPEG, PNG, and PDF files are allowed.`));
     }
-  },
+  }
 }).fields([
   { name: 'image', maxCount: 1 },
-  { name: 'attachment', maxCount: 1 },
+  { name: 'attachment', maxCount: 1 }
 ]);
 
 // Upload image endpoint
@@ -48,23 +48,21 @@ exports.uploadImage = async (req, res) => {
       console.error('No files received. Request details:', {
         body: req.body,
         files: req.files,
-        headers: req.headers,
+        headers: req.headers
       });
-      return res.status(400).json({
-        error: 'No files uploaded. Send files with field name "image" and/or "attachment".',
-      });
+      return res.status(400).json({ error: 'No files uploaded. Send files with field name "image" and/or "attachment".' });
     }
 
     try {
       const results = {};
-
+      
       // Process image if present
       if (req.files.image) {
         const imageFile = req.files.image[0];
         const imageResult = await uploadFile(imageFile, {
           folder: 'whoosh',
           type: 'image',
-          generateThumbnail: true,
+          generateThumbnail: true
         });
         results.image = imageResult;
       }
@@ -75,22 +73,22 @@ exports.uploadImage = async (req, res) => {
         const attachmentResult = await uploadFile(attachmentFile, {
           folder: 'whoosh',
           type: 'document',
-          generateThumbnail: false,
+          generateThumbnail: false
         });
         results.attachment = attachmentResult;
       }
 
       console.log('Files uploaded successfully:', results);
 
-      res.json({
+      res.json({ 
         success: true,
-        ...results,
+        ...results
       });
     } catch (error) {
       console.error('Error uploading to cloud storage:', error);
-      res.status(500).json({
+      res.status(500).json({ 
         error: 'Failed to upload to cloud storage',
-        details: error.message,
+        details: error.message
       });
     }
   });

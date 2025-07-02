@@ -1,11 +1,5 @@
 const express = require('express');
-const {
-  checkIn,
-  checkOut,
-  getClientLocation,
-  getHistory,
-  getTotalWorkingHours,
-} = require('../controllers/CheckinController');
+const { checkIn, checkOut, getClientLocation, getHistory, getTotalWorkingHours } = require('../controllers/CheckinController');
 const { authenticateToken } = require('../middleware/authMiddleware');
 
 const router = express.Router();

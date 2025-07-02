@@ -22,4 +22,4 @@ if (!email) {
   process.exit(1);
 }
 
-setUserAsAdmin(email);
+setUserAsAdmin(email); 

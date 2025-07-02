@@ -12,13 +12,13 @@ const getOffice = async (req, res) => {
         longitude: true,
       },
     });
-
+    
     // Keep balance as a string for client compatibility
-    const formattedOffice = office.map((office) => ({
+    const formattedOffice = office.map(office => ({
       ...office,
       // No conversion needed - balance remains a string
     }));
-
+    
     res.status(200).json(formattedOffice);
   } catch (error) {
     console.error('Error fetching office:', error);
@@ -67,7 +67,7 @@ const updateOffice = async (req, res) => {
         address,
         latitude,
         longitude,
-      },
+          },
     });
     res.status(200).json(updatedOffice);
   } catch (error) {
@@ -75,6 +75,8 @@ const updateOffice = async (req, res) => {
     res.status(500).json({ error: 'Failed to update office' });
   }
 };
+
+
 
 module.exports = {
   getOffice,

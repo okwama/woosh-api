@@ -8,7 +8,7 @@ const calculateLoginHours = async (req, res) => {
 
     // Validate user exists
     const user = await prisma.salesRep.findUnique({
-      where: { id: parseInt(userId) },
+      where: { id: parseInt(userId) }
     });
 
     if (!user) {
@@ -21,8 +21,8 @@ const calculateLoginHours = async (req, res) => {
       dateFilter = {
         loginAt: {
           gte: new Date(startDate),
-          lte: new Date(endDate),
-        },
+          lte: new Date(endDate)
+        }
       };
     }
 
@@ -31,17 +31,17 @@ const calculateLoginHours = async (req, res) => {
       where: {
         userId: parseInt(userId),
         logoutAt: { not: null }, // Only count completed sessions
-        ...dateFilter,
+        ...dateFilter
       },
       select: {
         duration: true,
         isLate: true,
         isEarly: true,
-        status: true,
+        status: true
       },
       orderBy: {
-        loginAt: 'desc',
-      },
+        loginAt: 'desc'
+      }
     });
 
     // Calculate total minutes from duration field
@@ -50,8 +50,8 @@ const calculateLoginHours = async (req, res) => {
     const minutes = Math.round(totalMinutes % 60);
 
     // Calculate late/early statistics
-    const lateCount = sessions.filter((s) => s.isLate).length;
-    const earlyCount = sessions.filter((s) => s.isEarly).length;
+    const lateCount = sessions.filter(s => s.isLate).length;
+    const earlyCount = sessions.filter(s => s.isEarly).length;
 
     res.json({
       userId,
@@ -59,14 +59,12 @@ const calculateLoginHours = async (req, res) => {
       totalMinutes: minutes,
       sessionCount: sessions.length,
       formattedDuration: `${hours}h ${minutes}m`,
-      averageSessionDuration:
-        sessions.length > 0 ? `${Math.floor(totalMinutes / sessions.length)}m` : '0m',
+      averageSessionDuration: sessions.length > 0 ? `${Math.floor(totalMinutes / sessions.length)}m` : '0m',
       lateCount,
       earlyCount,
-      punctualityRate:
-        sessions.length > 0
-          ? `${Math.round(((sessions.length - lateCount) / sessions.length) * 100)}%`
-          : '0%',
+      punctualityRate: sessions.length > 0 
+        ? `${Math.round(((sessions.length - lateCount) / sessions.length) * 100)}%` 
+        : '0%'
     });
   } catch (error) {
     console.error('Error calculating login hours:', error);
@@ -82,7 +80,7 @@ const calculateJourneyPlanVisits = async (req, res) => {
 
     // Validate user exists
     const user = await prisma.salesRep.findUnique({
-      where: { id: parseInt(userId) },
+      where: { id: parseInt(userId) }
     });
 
     if (!user) {
@@ -95,8 +93,8 @@ const calculateJourneyPlanVisits = async (req, res) => {
       dateFilter = {
         date: {
           gte: new Date(startDate),
-          lte: new Date(endDate),
-        },
+          lte: new Date(endDate)
+        }
       };
     }
 
@@ -104,7 +102,7 @@ const calculateJourneyPlanVisits = async (req, res) => {
     const journeyPlans = await prisma.journeyPlan.findMany({
       where: {
         userId: parseInt(userId),
-        ...dateFilter,
+        ...dateFilter
       },
       select: {
         checkInTime: true,
@@ -112,33 +110,29 @@ const calculateJourneyPlanVisits = async (req, res) => {
         client: {
           select: {
             id: true,
-            name: true,
-          },
-        },
+            name: true
+          }
+        }
       },
       orderBy: {
-        date: 'desc',
-      },
+        date: 'desc'
+      }
     });
 
     // Calculate visit statistics
-    const completedVisits = journeyPlans.filter(
-      (plan) => plan.checkInTime && plan.checkoutTime
-    ).length;
-    const pendingVisits = journeyPlans.filter(
-      (plan) => plan.checkInTime && !plan.checkoutTime
-    ).length;
-    const missedVisits = journeyPlans.filter((plan) => !plan.checkInTime).length;
+    const completedVisits = journeyPlans.filter(plan => plan.checkInTime && plan.checkoutTime).length;
+    const pendingVisits = journeyPlans.filter(plan => plan.checkInTime && !plan.checkoutTime).length;
+    const missedVisits = journeyPlans.filter(plan => !plan.checkInTime).length;
 
     // Group visits by client
     const clientVisits = {};
-    journeyPlans.forEach((plan) => {
+    journeyPlans.forEach(plan => {
       if (plan.checkInTime && plan.checkoutTime) {
         const clientId = plan.client.id;
         if (!clientVisits[clientId]) {
           clientVisits[clientId] = {
             clientName: plan.client.name,
-            visitCount: 0,
+            visitCount: 0
           };
         }
         clientVisits[clientId].visitCount++;
@@ -152,10 +146,9 @@ const calculateJourneyPlanVisits = async (req, res) => {
       pendingVisits,
       missedVisits,
       clientVisits: Object.values(clientVisits),
-      completionRate:
-        journeyPlans.length > 0
-          ? `${Math.round((completedVisits / journeyPlans.length) * 100)}%`
-          : '0%',
+      completionRate: journeyPlans.length > 0 
+        ? `${Math.round((completedVisits / journeyPlans.length) * 100)}%` 
+        : '0%'
     });
   } catch (error) {
     console.error('Error calculating journey plan visits:', error);
@@ -165,5 +158,5 @@ const calculateJourneyPlanVisits = async (req, res) => {
 
 module.exports = {
   calculateLoginHours,
-  calculateJourneyPlanVisits,
-};
+  calculateJourneyPlanVisits
+}; 

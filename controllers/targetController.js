@@ -1,16 +1,73 @@
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 
-// Import target services for complex business logic
-const targetService = require('../lib/services/targetService');
-const clientTrackingService = require('../lib/services/clientTrackingService');
-const productSalesService = require('../lib/services/productSalesService');
-
 // Create test data
 exports.createTestData = async (req, res) => {
   try {
-    const result = await targetService.createTestData();
-    res.json(result);
+    // First, get a sales rep
+    const salesRep = await prisma.SalesRep.findFirst();
+    
+    if (!salesRep) {
+      return res.status(404).json({ error: 'No sales rep found. Please create a sales rep first.' });
+    }
+
+    // Create a target
+    const target = await prisma.Target.create({
+      data: {
+        salesRepId: salesRep.id,
+        isCurrent: true,
+        targetValue: 100,
+        achievedValue: 0,
+        achieved: false
+      }
+    });
+
+    // Create some journey plans for today
+    const today = new Date();
+    const startOfDay = new Date(today.setHours(0, 0, 0, 0));
+    const endOfDay = new Date(today.setHours(23, 59, 59, 999));
+
+    // Create completed visits
+    await prisma.JourneyPlan.create({
+      data: {
+        userId: salesRep.id,
+        date: today,
+        time: "09:00",
+        clientId: 1, // Make sure this client exists
+        checkInTime: new Date(today.setHours(9, 0, 0, 0)),
+        checkoutTime: new Date(today.setHours(10, 0, 0, 0)),
+        status: 1
+      }
+    });
+
+    // Create pending visit
+    await prisma.JourneyPlan.create({
+      data: {
+        userId: salesRep.id,
+        date: today,
+        time: "11:00",
+        clientId: 2, // Make sure this client exists
+        checkInTime: new Date(today.setHours(11, 0, 0, 0)),
+        status: 1
+      }
+    });
+
+    // Create missed visit
+    await prisma.JourneyPlan.create({
+      data: {
+        userId: salesRep.id,
+        date: today,
+        time: "14:00",
+        clientId: 3, // Make sure this client exists
+        status: 0
+      }
+    });
+
+    res.json({
+      message: 'Test data created successfully',
+      target,
+      salesRepId: salesRep.id
+    });
   } catch (error) {
     console.error('Error creating test data:', error);
     res.status(500).json({ error: 'Failed to create test data', details: error.message });
@@ -20,8 +77,56 @@ exports.createTestData = async (req, res) => {
 // Get all targets with calculated progress
 exports.getAllTargets = async (req, res) => {
   try {
-    const targets = await targetService.getAllTargetsWithProgress();
-    res.json(targets);
+    console.log('Fetching all targets...');
+    const targets = await prisma.Target.findMany();
+    console.log('Found targets:', targets);
+
+    if (!targets || targets.length === 0) {
+      return res.json([]);
+    }
+
+    // For each target, calculate achievedValue and progress
+    const targetsWithProgress = await Promise.all(targets.map(async (target) => {
+      console.log('Processing target:', target.id);
+      
+      // Find all orders for this sales rep within the target period
+      const orders = await prisma.MyOrder.findMany({
+        where: {
+          userId: target.salesRepId,
+          createdAt: {
+            gte: target.createdAt,
+            lte: target.updatedAt,
+          },
+        },
+        select: { id: true },
+      });
+      console.log('Found orders for target:', target.id, orders.length);
+      
+      const orderIds = orders.map(o => o.id);
+
+      // Sum up all quantities from OrderItem for these orders
+      let achievedValue = 0;
+      if (orderIds.length > 0) {
+        const { _sum } = await prisma.OrderItem.aggregate({
+          where: { orderId: { in: orderIds } },
+          _sum: { quantity: true },
+        });
+        achievedValue = _sum.quantity || 0;
+        console.log('Achieved value for target:', target.id, achievedValue);
+      }
+      
+      const progress = target.targetValue > 0 ? (achievedValue / target.targetValue) * 100 : 0;
+      console.log('Progress for target:', target.id, progress);
+
+      return {
+        ...target,
+        achievedValue,
+        progress,
+      };
+    }));
+
+    console.log('Sending response with targets:', targetsWithProgress);
+    res.json(targetsWithProgress);
   } catch (error) {
     console.error('Error in getAllTargets:', error);
     res.status(500).json({ error: 'Failed to fetch targets', details: error.message });
@@ -33,9 +138,56 @@ exports.getDailyVisitTargets = async (req, res) => {
   try {
     const { userId } = req.params;
     const { date } = req.query;
-    
-    const result = await targetService.getDailyVisitTargets(parseInt(userId), date);
-    res.json(result);
+    console.log('Getting daily visit targets for user:', userId, 'date:', date);
+
+    // Get the sales rep's visit target
+    const salesRep = await prisma.SalesRep.findUnique({
+      where: { id: parseInt(userId) },
+      select: { visits_targets: true }
+    });
+    console.log('Found sales rep:', salesRep);
+
+    if (!salesRep) {
+      return res.status(404).json({ error: 'Sales rep not found' });
+    }
+
+    // Set date range for the query
+    const queryDate = date ? new Date(date) : new Date();
+    const startOfDay = new Date(queryDate.setHours(0, 0, 0, 0));
+    const endOfDay = new Date(queryDate.setHours(23, 59, 59, 999));
+    console.log('Date range:', { startOfDay, endOfDay });
+
+    // Get completed visits for the day
+    const completedVisits = await prisma.JourneyPlan.count({
+      where: {
+        userId: parseInt(userId),
+        checkInTime: {
+          gte: startOfDay,
+          lte: endOfDay
+        },
+        checkoutTime: {
+          not: null
+        }
+      }
+    });
+    console.log('Completed visits:', completedVisits);
+
+    // Calculate progress percentage
+    const progress = salesRep.visits_targets > 0 
+      ? (completedVisits / salesRep.visits_targets) * 100 
+      : 0;
+
+    const response = {
+      userId,
+      date: queryDate.toISOString().split('T')[0],
+      visitTarget: salesRep.visits_targets,
+      completedVisits,
+      remainingVisits: Math.max(0, salesRep.visits_targets - completedVisits),
+      progress: Math.round(progress),
+      status: completedVisits >= salesRep.visits_targets ? 'Target Achieved' : 'In Progress'
+    };
+    console.log('Sending response:', response);
+    res.json(response);
   } catch (error) {
     console.error('Error in getDailyVisitTargets:', error);
     res.status(500).json({ error: 'Failed to fetch daily visit targets', details: error.message });
@@ -47,189 +199,85 @@ exports.getMonthlyVisitReports = async (req, res) => {
   try {
     const { userId } = req.params;
     const { month, year } = req.query;
-    
-    const reports = await targetService.getMonthlyVisitReports(
-      parseInt(userId), 
-      month ? parseInt(month) : null, 
-      year ? parseInt(year) : null
-    );
-    res.json(reports);
-  } catch (error) {
-    console.error('Error fetching monthly visit reports:', error);
-    res.status(500).json({
-      error: 'Failed to fetch monthly visit reports',
-      details: error.message,
+
+    // Validate user exists
+    const user = await prisma.salesRep.findUnique({
+      where: { id: parseInt(userId) }
     });
-  }
-};
 
-// NEW: Get new clients added by sales rep
-exports.getNewClientsProgress = async (req, res) => {
-  try {
-    const { userId } = req.params;
-    const { startDate, endDate, period } = req.query;
-    
-    const result = await clientTrackingService.getNewClientsProgress(
-      parseInt(userId), 
-      startDate, 
-      endDate,
-      period
-    );
-    res.json(result);
-  } catch (error) {
-    console.error('Error fetching new clients progress:', error);
-    res.status(500).json({ error: 'Failed to fetch new clients progress', details: error.message });
-  }
-};
+    if (!user) {
+      return res.status(404).json({ error: 'Sales rep not found' });
+    }
 
-// NEW: Get detailed list of new clients added by sales rep
-exports.getNewClientsDetails = async (req, res) => {
-  try {
-    const { userId } = req.params;
-    const { startDate, endDate, period } = req.query;
-    
-    const result = await clientTrackingService.getNewClientsDetails(
-      parseInt(userId), 
-      startDate, 
-      endDate,
-      period
-    );
-    res.json(result);
-  } catch (error) {
-    console.error('Error fetching new clients details:', error);
-    res.status(500).json({ error: 'Failed to fetch new clients details', details: error.message });
-  }
-};
+    // Get current month and year if not provided
+    const currentDate = new Date();
+    const targetMonth = month ? parseInt(month) : currentDate.getMonth() + 1;
+    const targetYear = year ? parseInt(year) : currentDate.getFullYear();
 
-// NEW: Get vapes and pouches sales progress
-exports.getProductSalesProgress = async (req, res) => {
-  try {
-    const { userId } = req.params;
-    const { startDate, endDate, productType } = req.query;
-    
-    const result = await productSalesService.getProductSalesProgress(
-      parseInt(userId),
-      productType, // 'vapes', 'pouches', or 'all'
-      startDate,
-      endDate
-    );
-    res.json(result);
-  } catch (error) {
-    console.error('Error fetching product sales progress:', error);
-    res.status(500).json({ error: 'Failed to fetch product sales progress', details: error.message });
-  }
-};
+    // Calculate start and end dates for the month
+    const startDate = new Date(targetYear, targetMonth - 1, 1);
+    const endDate = new Date(targetYear, targetMonth, 0);
 
-// NEW: Get comprehensive sales rep performance dashboard
-exports.getSalesRepDashboard = async (req, res) => {
-  try {
-    const { userId } = req.params;
-    const { period = 'current_month' } = req.query; // 'current_month', 'last_month', 'current_year'
-    
-    const [visitTargets, newClients, productSales] = await Promise.all([
-      targetService.getDailyVisitTargets(parseInt(userId)),
-      clientTrackingService.getNewClientsProgress(parseInt(userId), null, null, period),
-      productSalesService.getProductSalesProgress(parseInt(userId), 'all', null, null, period)
-    ]);
-
-    const dashboard = {
-      userId: parseInt(userId),
-      period,
-      visitTargets,
-      newClients,
-      productSales,
-      generatedAt: new Date().toISOString()
-    };
-
-    res.json(dashboard);
-  } catch (error) {
-    console.error('Error fetching sales rep dashboard:', error);
-    res.status(500).json({ error: 'Failed to fetch sales rep dashboard', details: error.message });
-  }
-};
-
-// NEW: Update sales rep targets (vapes, pouches, new clients)
-exports.updateSalesRepTargets = async (req, res) => {
-  try {
-    const { userId } = req.params;
-    const { vapes_targets, pouches_targets, new_clients_target, visits_targets } = req.body;
-    
-    const updatedSalesRep = await prisma.salesRep.update({
-      where: { id: parseInt(userId) },
-      data: {
-        ...(vapes_targets !== undefined && { vapes_targets }),
-        ...(pouches_targets !== undefined && { pouches_targets }),
-        ...(new_clients !== undefined && { new_clients: new_clients_target }),
-        ...(visits_targets !== undefined && { visits_targets }),
-        updatedAt: new Date()
+    // Get all journey plans for the month
+    const journeyPlans = await prisma.journeyPlan.findMany({
+      where: {
+        userId: parseInt(userId),
+        date: {
+          gte: startDate,
+          lte: endDate
+        }
       },
       select: {
-        id: true,
-        name: true,
-        vapes_targets: true,
-        pouches_targets: true,
-        new_clients: true,
-        visits_targets: true,
-        updatedAt: true
+        date: true,
+        checkInTime: true,
+        checkoutTime: true
+      },
+      orderBy: {
+        date: 'desc'
       }
     });
 
-    res.json({
-      message: 'Sales rep targets updated successfully',
-      salesRep: updatedSalesRep
-    });
-  } catch (error) {
-    console.error('Error updating sales rep targets:', error);
-    res.status(500).json({ error: 'Failed to update sales rep targets', details: error.message });
-  }
-};
-
-// NEW: Get team performance overview (for managers)
-exports.getTeamPerformanceOverview = async (req, res) => {
-  try {
-    const { managerId } = req.params;
-    const { period = 'current_month' } = req.query;
-    
-    // Get all sales reps under this manager
-    const salesReps = await prisma.salesRep.findMany({
-      where: { managerId: parseInt(managerId) },
-      select: { id: true, name: true }
-    });
-
-    const teamPerformance = await Promise.all(
-      salesReps.map(async (rep) => {
-        const [visits, clients, products] = await Promise.all([
-          targetService.getDailyVisitTargets(rep.id),
-          clientTrackingService.getNewClientsProgress(rep.id, null, null, period),
-          productSalesService.getProductSalesProgress(rep.id, 'all', null, null, period)
-        ]);
-
-        return {
-          salesRep: rep,
-          performance: { visits, clients, products }
+    // Group visits by date
+    const visitsByDate = {};
+    journeyPlans.forEach(plan => {
+      const dateStr = plan.date.toISOString().split('T')[0];
+      if (!visitsByDate[dateStr]) {
+        visitsByDate[dateStr] = {
+          completedVisits: 0
         };
-      })
-    );
-
-    res.json({
-      managerId: parseInt(managerId),
-      period,
-      teamPerformance,
-      generatedAt: new Date().toISOString()
+      }
+      if (plan.checkInTime && plan.checkoutTime) {
+        visitsByDate[dateStr].completedVisits++;
+      }
     });
+
+    // Generate report for each day of the month
+    const reports = [];
+    for (let d = 1; d <= endDate.getDate(); d++) {
+      const currentDate = new Date(targetYear, targetMonth - 1, d);
+      const dateStr = currentDate.toISOString().split('T')[0];
+      const dayVisits = visitsByDate[dateStr] || { completedVisits: 0 };
+      
+      const report = {
+        userId: userId.toString(),
+        date: dateStr,
+        visitTarget: user.visits_targets,
+        completedVisits: dayVisits.completedVisits,
+        remainingVisits: Math.max(0, user.visits_targets - dayVisits.completedVisits),
+        progress: Math.round((dayVisits.completedVisits / user.visits_targets) * 100),
+        status: dayVisits.completedVisits >= user.visits_targets ? "Target Achieved" : "In Progress"
+      };
+      
+      reports.push(report);
+    }
+
+    res.json(reports);
   } catch (error) {
-    console.error('Error fetching team performance:', error);
-    res.status(500).json({ error: 'Failed to fetch team performance', details: error.message });
+    console.error('Error fetching monthly visit reports:', error);
+    res.status(500).json({ 
+      error: 'Failed to fetch monthly visit reports',
+      details: error.message 
+    });
   }
 };
 
-// NEW: Get category mapping for product classification
-exports.getCategoryMapping = async (req, res) => {
-  try {
-    const categoryInfo = await productSalesService.getCategoryMapping();
-    res.json(categoryInfo);
-  } catch (error) {
-    console.error('Error fetching category mapping:', error);
-    res.status(500).json({ error: 'Failed to fetch category mapping', details: error.message });
-  }
-};
