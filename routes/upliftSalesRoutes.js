@@ -21,4 +21,4 @@ router.patch('/:id/status', upliftSaleController.updateUpliftSaleStatus);
 // Delete an uplift sale
 router.delete('/:id', upliftSaleController.deleteUpliftSale);
 
-module.exports = router; 
+module.exports = router;

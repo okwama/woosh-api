@@ -12,9 +12,6 @@ router
   .get(getOffice) // GET /api/offices
   .post(createOffice); // POST /api/offices
 
-router
-  .route('/:id')
-  .put(updateOffice); // PUT /api/offices/:id
-
+router.route('/:id').put(updateOffice); // PUT /api/offices/:id
 
 module.exports = router;

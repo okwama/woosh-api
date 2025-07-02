@@ -2,7 +2,7 @@ const { DateTime } = require('luxon');
 const prisma = require('../lib/prisma');
 const cron = require('node-cron');
 // Constants for shift times
-const SHIFT_START_HOUR = 9;  // Changed from 9 to 12 for testing
+const SHIFT_START_HOUR = 9; // Changed from 9 to 12 for testing
 const SHIFT_START_MINUTE = 0;
 const SHIFT_END_HOUR = 18; // 6 PM
 const SHIFT_END_MINUTE = 0;
@@ -23,22 +23,22 @@ const checkConsecutiveLateLogins = async (userId) => {
     // Get the last 4 days of login history
     const fourDaysAgo = new Date();
     fourDaysAgo.setDate(fourDaysAgo.getDate() - 4);
-    
+
     const recentLogins = await prisma.loginHistory.findMany({
       where: {
         userId: parseInt(userId),
         loginAt: {
-          gte: fourDaysAgo
-        }
+          gte: fourDaysAgo,
+        },
       },
       orderBy: {
-        loginAt: 'asc'
-      }
+        loginAt: 'asc',
+      },
     });
 
     // Group logins by day
     const loginsByDay = {};
-    recentLogins.forEach(login => {
+    recentLogins.forEach((login) => {
       const date = login.loginAt.toISOString().split('T')[0];
       if (!loginsByDay[date]) {
         loginsByDay[date] = [];
@@ -49,11 +49,11 @@ const checkConsecutiveLateLogins = async (userId) => {
     // Check for consecutive late days
     let consecutiveLateDays = 0;
     const dates = Object.keys(loginsByDay).sort();
-    
+
     for (let i = 0; i < dates.length; i++) {
       const dayLogins = loginsByDay[dates[i]];
-      const hasLateLogin = dayLogins.some(login => login.isLate);
-      
+      const hasLateLogin = dayLogins.some((login) => login.isLate);
+
       if (hasLateLogin) {
         consecutiveLateDays++;
       } else {
@@ -64,7 +64,7 @@ const checkConsecutiveLateLogins = async (userId) => {
     // If 3 consecutive late days found, disable the account
     if (consecutiveLateDays >= 3) {
       const user = await prisma.salesRep.findUnique({
-        where: { id: parseInt(userId) }
+        where: { id: parseInt(userId) },
       });
 
       if (user) {
@@ -73,15 +73,15 @@ const checkConsecutiveLateLogins = async (userId) => {
           where: { id: parseInt(userId) },
           data: {
             status: 4,
-            role: 'DISABLED'
-          }
+            role: 'DISABLED',
+          },
         });
 
         return {
           updated: true,
           newStatus: 4,
           role: 'DISABLED',
-          message: 'Account disabled due to 3 consecutive late logins'
+          message: 'Account disabled due to 3 consecutive late logins',
         };
       }
     }
@@ -89,9 +89,10 @@ const checkConsecutiveLateLogins = async (userId) => {
     return {
       updated: false,
       consecutiveLateDays,
-      message: consecutiveLateDays > 0 
-        ? `${consecutiveLateDays} consecutive late days`
-        : 'No consecutive late days found'
+      message:
+        consecutiveLateDays > 0
+          ? `${consecutiveLateDays} consecutive late days`
+          : 'No consecutive late days found',
     };
   } catch (error) {
     console.error('Error checking consecutive late logins:', error);
@@ -109,7 +110,7 @@ const recordLogin = async (req, res) => {
       userId,
       attemptedStartTime: clientTime,
       timezone,
-      serverTime: new Date().toISOString()
+      serverTime: new Date().toISOString(),
     });
 
     // Validate timezone format
@@ -118,21 +119,21 @@ const recordLogin = async (req, res) => {
     }
 
     // Parse with strict timezone handling
-    const userLoginTime = DateTime.fromISO(clientTime, { 
+    const userLoginTime = DateTime.fromISO(clientTime, {
       zone: timezone,
-      setZone: true 
+      setZone: true,
     });
 
     if (!userLoginTime.isValid) {
       console.log('❌ INVALID LOGIN TIME:', {
         receivedTime: clientTime,
         timezone,
-        error: 'Invalid time format'
+        error: 'Invalid time format',
       });
       return res.status(400).json({
         error: 'Invalid time format',
         received: clientTime,
-        expectedFormat: 'ISO8601 with timezone'
+        expectedFormat: 'ISO8601 with timezone',
       });
     }
 
@@ -140,7 +141,7 @@ const recordLogin = async (req, res) => {
     const shiftStart = userLoginTime.set({
       hour: SHIFT_START_HOUR,
       minute: SHIFT_START_MINUTE,
-      second: 0
+      second: 0,
     });
 
     // If trying to login before 9 AM
@@ -148,18 +149,18 @@ const recordLogin = async (req, res) => {
       console.log('❌ EARLY LOGIN ATTEMPT:', {
         userId,
         attemptedTime: userLoginTime.toFormat('HH:mm:ss'),
-        message: 'Login attempted before 9 AM'
+        message: 'Login attempted before 9 AM',
       });
       return res.status(400).json({
         success: false,
-        error: 'Sessions can only be started from 9:00 AM'
+        error: 'Sessions can only be started from 9:00 AM',
       });
     }
 
     const shiftEnd = userLoginTime.set({
       hour: SHIFT_END_HOUR,
       minute: SHIFT_END_MINUTE,
-      second: 0
+      second: 0,
     });
 
     // Determine if late (only check after 9 AM)
@@ -176,9 +177,9 @@ const recordLogin = async (req, res) => {
         shiftEnd: shiftEnd.toUTC().toJSDate(),
         isLate,
         isEarly: false,
-        status: isLate ? 'LATE' : 'ON_TIME'
+        status: isLate ? 'LATE' : 'ON_TIME',
       },
-      include: { user: true }
+      include: { user: true },
     });
 
     console.log('✅ SESSION STARTED:', {
@@ -187,7 +188,7 @@ const recordLogin = async (req, res) => {
       startTime: loginRecord.sessionStart,
       status: loginRecord.status,
       isLate,
-      timezone
+      timezone,
     });
 
     res.status(201).json({
@@ -195,21 +196,20 @@ const recordLogin = async (req, res) => {
       record: {
         ...loginRecord,
         localTime: loginRecord.sessionStart,
-        timezone: loginRecord.timezone
-      }
+        timezone: loginRecord.timezone,
+      },
     });
-
   } catch (error) {
     console.error('❌ LOGIN ERROR:', {
       userId: req.body?.userId,
       error: error.message,
-      stack: error.stack
+      stack: error.stack,
     });
-    res.status(500).json({ 
+    res.status(500).json({
       error: 'Login recording failed',
-      ...(process.env.NODE_ENV === 'development' && { 
-        details: error.message 
-      })
+      ...(process.env.NODE_ENV === 'development' && {
+        details: error.message,
+      }),
     });
   }
 };
@@ -224,42 +224,45 @@ const recordLogin = async (req, res) => {
 // Simple auto-logout at 6 PM every day
 const scheduleAutoLogout = () => {
   // Runs at 6:00 PM every day in Africa/Nairobi timezone
-  cron.schedule('00 18 * * *', async () => {
-    console.log('[AUTO-LOGOUT] Triggering at 6 PM');
-    
-    try {
-      // Find all active sessions
-      const activeSessions = await prisma.loginHistory.findMany({
-        where: {
-          logoutAt: null
+  cron.schedule(
+    '00 18 * * *',
+    async () => {
+      console.log('[AUTO-LOGOUT] Triggering at 6 PM');
+
+      try {
+        // Find all active sessions
+        const activeSessions = await prisma.loginHistory.findMany({
+          where: {
+            logoutAt: null,
+          },
+        });
+
+        console.log(`[AUTO-LOGOUT] Found ${activeSessions.length} active sessions`);
+
+        // Auto-logout each user
+        for (const session of activeSessions) {
+          const mockReq = {
+            body: { userId: session.userId.toString() },
+            headers: { timezone: session.timezone || 'Africa/Nairobi' },
+          };
+
+          const mockRes = {
+            status: (code) => ({
+              json: (data) => console.log(`[AUTO-LOGOUT] User ${session.userId}:`, data),
+            }),
+          };
+
+          // Call your existing recordLogout function
+          await recordLogout(mockReq, mockRes);
         }
-      });
-
-      console.log(`[AUTO-LOGOUT] Found ${activeSessions.length} active sessions`);
-
-      // Auto-logout each user
-      for (const session of activeSessions) {
-        const mockReq = {
-          body: { userId: session.userId.toString() },
-          headers: { timezone: session.timezone || 'Africa/Nairobi' }
-        };
-        
-        const mockRes = {
-          status: (code) => ({
-            json: (data) => console.log(`[AUTO-LOGOUT] User ${session.userId}:`, data)
-          })
-        };
-
-        // Call your existing recordLogout function
-        await recordLogout(mockReq, mockRes);
+      } catch (error) {
+        console.error('[AUTO-LOGOUT] Failed:', error);
       }
-
-    } catch (error) {
-      console.error('[AUTO-LOGOUT] Failed:', error);
+    },
+    {
+      timezone: 'Africa/Nairobi',
     }
-  }, {
-    timezone: 'Africa/Nairobi'
-  });
+  );
 };
 
 // Initialize when your app starts
@@ -275,25 +278,25 @@ const recordLogout = async (req, res) => {
     console.log('🔵 LOGOUT INITIATED:', {
       userId,
       time: new Date().toISOString(),
-      timezone
+      timezone,
     });
 
     // Find active session
     const activeSession = await prisma.loginHistory.findFirst({
       where: {
         userId: parseInt(userId),
-        logoutAt: null
-      }
+        logoutAt: null,
+      },
     });
 
     if (!activeSession) {
       console.log('❌ NO ACTIVE SESSION:', {
         userId,
-        time: new Date().toISOString()
+        time: new Date().toISOString(),
       });
-      return res.status(404).json({ 
+      return res.status(404).json({
         error: 'No active session found',
-        userId 
+        userId,
       });
     }
 
@@ -305,7 +308,7 @@ const recordLogout = async (req, res) => {
     // Calculate timing status
     const earlyThreshold = shiftEnd.minus({ minutes: EARLY_LOGOUT_THRESHOLD_MINUTES });
     const overtimeThreshold = shiftEnd.plus({ minutes: OVERTIME_THRESHOLD_MINUTES });
-    
+
     const isEarly = logoutTime < earlyThreshold;
     const isOvertime = logoutTime > overtimeThreshold;
     const durationMinutes = Math.floor(logoutTime.diff(loginTime, 'minutes').minutes);
@@ -331,8 +334,8 @@ const recordLogout = async (req, res) => {
         sessionEnd: logoutTime.toFormat('yyyy-MM-dd HH:mm:ss'),
         isEarly,
         duration: durationMinutes,
-        status
-      }
+        status,
+      },
     });
 
     console.log('✅ SESSION ENDED:', {
@@ -340,10 +343,10 @@ const recordLogout = async (req, res) => {
       sessionId: activeSession.id,
       startTime: activeSession.sessionStart,
       endTime: updatedSession.sessionEnd,
-      duration: `${Math.floor(durationMinutes/60)}h ${durationMinutes%60}m`,
+      duration: `${Math.floor(durationMinutes / 60)}h ${durationMinutes % 60}m`,
       status,
       isEarly,
-      isOvertime
+      isOvertime,
     });
 
     res.status(200).json({
@@ -353,18 +356,17 @@ const recordLogout = async (req, res) => {
       duration: durationMinutes,
       status,
       isEarly,
-      isOvertime
+      isOvertime,
     });
-
   } catch (error) {
     console.error('❌ LOGOUT ERROR:', {
       userId: req.body?.userId,
       error: error.message,
-      stack: error.stack
+      stack: error.stack,
     });
-    res.status(500).json({ 
+    res.status(500).json({
       error: 'Logout recording failed',
-      details: process.env.NODE_ENV === 'development' ? error.message : null
+      details: process.env.NODE_ENV === 'development' ? error.message : null,
     });
   }
 };
@@ -383,40 +385,40 @@ const getSessionHistory = async (req, res) => {
       dateFilter = {
         loginAt: {
           gte: new Date(startDate),
-          lte: new Date(endDate)
-        }
+          lte: new Date(endDate),
+        },
       };
     }
 
     const sessions = await prisma.loginHistory.findMany({
       where: {
         userId: parseInt(userId),
-        ...dateFilter
+        ...dateFilter,
       },
       orderBy: {
-        loginAt: 'desc'
-      }
+        loginAt: 'desc',
+      },
     });
 
-    const formattedSessions = sessions.map(session => {
+    const formattedSessions = sessions.map((session) => {
       // Calculate duration using the most accurate available time fields
       let duration = null;
       let durationMinutes = null;
 
       // Case 1: Both sessionStart and sessionEnd exist (preferred)
       if (session.sessionStart && session.sessionEnd) {
-        const start = DateTime.fromFormat(session.sessionStart, 'yyyy-MM-dd HH:mm:ss', { 
-          zone: session.timezone || 'UTC' 
+        const start = DateTime.fromFormat(session.sessionStart, 'yyyy-MM-dd HH:mm:ss', {
+          zone: session.timezone || 'UTC',
         });
-        const end = DateTime.fromFormat(session.sessionEnd, 'yyyy-MM-dd HH:mm:ss', { 
-          zone: session.timezone || 'UTC' 
+        const end = DateTime.fromFormat(session.sessionEnd, 'yyyy-MM-dd HH:mm:ss', {
+          zone: session.timezone || 'UTC',
         });
         durationMinutes = end.diff(start, 'minutes').minutes;
       }
       // Case 2: Only sessionStart exists
       else if (session.sessionStart && session.logoutAt) {
-        const start = DateTime.fromFormat(session.sessionStart, 'yyyy-MM-dd HH:mm:ss', { 
-          zone: session.timezone || 'UTC' 
+        const start = DateTime.fromFormat(session.sessionStart, 'yyyy-MM-dd HH:mm:ss', {
+          zone: session.timezone || 'UTC',
         });
         const end = DateTime.fromJSDate(session.logoutAt).setZone(session.timezone || 'UTC');
         durationMinutes = end.diff(start, 'minutes').minutes;
@@ -424,8 +426,8 @@ const getSessionHistory = async (req, res) => {
       // Case 3: Only sessionEnd exists
       else if (session.sessionEnd && session.loginAt) {
         const start = DateTime.fromJSDate(session.loginAt).setZone(session.timezone || 'UTC');
-        const end = DateTime.fromFormat(session.sessionEnd, 'yyyy-MM-dd HH:mm:ss', { 
-          zone: session.timezone || 'UTC' 
+        const end = DateTime.fromFormat(session.sessionEnd, 'yyyy-MM-dd HH:mm:ss', {
+          zone: session.timezone || 'UTC',
         });
         durationMinutes = end.diff(start, 'minutes').minutes;
       }
@@ -447,21 +449,29 @@ const getSessionHistory = async (req, res) => {
       return {
         ...session,
         duration,
-        status: session.status === '1' ? 'Early' : 
-               session.status === '2' ? 'Overtime' : 
-               session.isLate ? 'Late' : 'On Time',
+        status:
+          session.status === '1'
+            ? 'Early'
+            : session.status === '2'
+              ? 'Overtime'
+              : session.isLate
+                ? 'Late'
+                : 'On Time',
         // Add these flags to help debug time sources
-        _timeSource: session.sessionStart && session.sessionEnd ? 'sessionTimes' :
-                    session.sessionStart || session.sessionEnd ? 'mixedTimes' : 'utcTimes'
+        _timeSource:
+          session.sessionStart && session.sessionEnd
+            ? 'sessionTimes'
+            : session.sessionStart || session.sessionEnd
+              ? 'mixedTimes'
+              : 'utcTimes',
       };
     });
 
     res.status(200).json({
       userId,
       totalSessions: sessions.length,
-      sessions: formattedSessions
+      sessions: formattedSessions,
     });
-
   } catch (error) {
     console.error('Error fetching session history:', error);
     res.status(500).json({ error: 'Failed to fetch session history' });
@@ -479,12 +489,17 @@ function formatDuration(minutes) {
 // Helper function to determine status label
 function determineStatus(session) {
   switch (session.status) {
-    case '1': return 'Early';
-    case '2': return 'Overtime';
-    case 'LATE': return 'Late';
-    case 'EARLY': return 'Early';
-    case 'ON_TIME': return 'On Time';
-    default: 
+    case '1':
+      return 'Early';
+    case '2':
+      return 'Overtime';
+    case 'LATE':
+      return 'Late';
+    case 'EARLY':
+      return 'Early';
+    case 'ON_TIME':
+      return 'On Time';
+    default:
       if (session.isLate) return 'Late';
       if (session.isEarly) return 'Early';
       return 'On Time';
@@ -494,5 +509,5 @@ function determineStatus(session) {
 module.exports = {
   recordLogin,
   recordLogout,
-  getSessionHistory
-}; 
+  getSessionHistory,
+};

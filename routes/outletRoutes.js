@@ -1,5 +1,14 @@
 const express = require('express');
-const { getOutlets, createOutlet, updateOutlet, getOutletProducts, getOutletLocation, addClientPayment, getClientPayments, updateOutletLocation } = require('../controllers/outletController');
+const {
+  getOutlets,
+  createOutlet,
+  updateOutlet,
+  getOutletProducts,
+  getOutletLocation,
+  addClientPayment,
+  getClientPayments,
+  updateOutletLocation,
+} = require('../controllers/outletController');
 const { authenticateToken } = require('../middleware/authMiddleware');
 
 const router = express.Router();
@@ -17,13 +26,9 @@ router
   .get(getOutletLocation) // GET /api/outlets/:id
   .put(updateOutlet); // PUT /api/outlets/:id
 
-router
-  .route('/:id/location')
-  .patch(updateOutletLocation); // PATCH /api/outlets/:id/location
+router.route('/:id/location').patch(updateOutletLocation); // PATCH /api/outlets/:id/location
 
-router
-  .route('/:id/products')
-  .get(getOutletProducts); // GET /api/outlets/:id/products
+router.route('/:id/products').get(getOutletProducts); // GET /api/outlets/:id/products
 
 router
   .route('/:id/payments')

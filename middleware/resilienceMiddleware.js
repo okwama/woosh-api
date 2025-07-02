@@ -11,22 +11,23 @@ class RateLimiter {
   isAllowed(identifier) {
     const now = Date.now();
     const windowStart = now - this.windowMs;
-    
+
     // Clean old entries
     if (this.requests.has(identifier)) {
-      this.requests.set(identifier, 
-        this.requests.get(identifier).filter(timestamp => timestamp > windowStart)
+      this.requests.set(
+        identifier,
+        this.requests.get(identifier).filter((timestamp) => timestamp > windowStart)
       );
     } else {
       this.requests.set(identifier, []);
     }
-    
+
     const requests = this.requests.get(identifier);
-    
+
     if (requests.length >= this.maxRequests) {
       return false;
     }
-    
+
     requests.push(now);
     return true;
   }
@@ -37,9 +38,9 @@ const timeoutMiddleware = (timeoutMs = 30000) => {
   return (req, res, next) => {
     const timeout = setTimeout(() => {
       if (!res.headersSent) {
-        res.status(408).json({ 
+        res.status(408).json({
           error: 'Request timeout',
-          message: 'The request took too long to process'
+          message: 'The request took too long to process',
         });
       }
     }, timeoutMs);
@@ -56,17 +57,19 @@ const timeoutMiddleware = (timeoutMs = 30000) => {
 const performanceMiddleware = () => {
   return (req, res, next) => {
     const start = performance.now();
-    
+
     res.on('finish', () => {
       const duration = performance.now() - start;
       console.log(`${req.method} ${req.path} - ${res.statusCode} - ${duration.toFixed(2)}ms`);
-      
+
       // Alert on slow requests
       if (duration > 5000) {
-        console.warn(`Slow request detected: ${req.method} ${req.path} took ${duration.toFixed(2)}ms`);
+        console.warn(
+          `Slow request detected: ${req.method} ${req.path} took ${duration.toFixed(2)}ms`
+        );
       }
     });
-    
+
     next();
   };
 };
@@ -78,9 +81,9 @@ const healthCheck = (req, res) => {
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
     memory: process.memoryUsage(),
-    environment: process.env.NODE_ENV || 'development'
+    environment: process.env.NODE_ENV || 'development',
   };
-  
+
   res.status(200).json(health);
 };
 
@@ -100,7 +103,7 @@ class Bulkhead {
     }
 
     this.current++;
-    
+
     try {
       const result = await operation();
       this.current--;
@@ -128,14 +131,14 @@ const dbBulkhead = new Bulkhead(20);
 // Rate limiting middleware
 const rateLimitMiddleware = (req, res, next) => {
   const identifier = req.ip || req.connection.remoteAddress;
-  
+
   if (!rateLimiter.isAllowed(identifier)) {
     return res.status(429).json({
       error: 'Too many requests',
-      message: 'Rate limit exceeded. Please try again later.'
+      message: 'Rate limit exceeded. Please try again later.',
     });
   }
-  
+
   next();
 };
 
@@ -151,5 +154,5 @@ module.exports = {
   rateLimitMiddleware,
   withBulkhead,
   RateLimiter,
-  Bulkhead
-}; 
+  Bulkhead,
+};

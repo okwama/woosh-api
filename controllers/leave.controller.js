@@ -7,7 +7,7 @@ const ImageKit = require('imagekit');
 const imagekit = new ImageKit({
   publicKey: process.env.IMAGEKIT_PUBLIC_KEY,
   privateKey: process.env.IMAGEKIT_PRIVATE_KEY,
-  urlEndpoint: process.env.IMAGEKIT_URL_ENDPOINT
+  urlEndpoint: process.env.IMAGEKIT_URL_ENDPOINT,
 });
 
 // Configure multer for memory storage
@@ -25,8 +25,8 @@ const upload = multer({
     }
   },
   limits: {
-    fileSize: 5 * 1024 * 1024 // 5MB limit
-  }
+    fileSize: 5 * 1024 * 1024, // 5MB limit
+  },
 }).single('attachment');
 
 // Handle file upload to ImageKit
@@ -37,7 +37,7 @@ const handleFileUpload = async (req) => {
     const result = await imagekit.upload({
       file: req.file.buffer.toString('base64'),
       fileName: `leave-${Date.now()}${path.extname(req.file.originalname)}`,
-      folder: '/leave-documents'
+      folder: '/leave-documents',
     });
     return result.url;
   } catch (error) {
@@ -54,15 +54,15 @@ exports.submitLeave = async (req, res) => {
         console.error('File upload error:', err);
         return res.status(400).json({ error: err.message });
       }
-      
+
       console.log('Request body:', req.body);
-      
+
       if (!req.body.leaveType || !req.body.startDate || !req.body.endDate || !req.body.reason) {
-        console.error('Missing required fields:', { 
-          leaveType: !!req.body.leaveType, 
-          startDate: !!req.body.startDate, 
-          endDate: !!req.body.endDate, 
-          reason: !!req.body.reason 
+        console.error('Missing required fields:', {
+          leaveType: !!req.body.leaveType,
+          startDate: !!req.body.startDate,
+          endDate: !!req.body.endDate,
+          reason: !!req.body.reason,
         });
         return res.status(400).json({ error: 'Missing required fields' });
       }
@@ -78,12 +78,19 @@ exports.submitLeave = async (req, res) => {
 
       if (req.file) {
         try {
-          console.log('Uploading file to ImageKit:', req.file.originalname, req.file.mimetype, req.file.size);
+          console.log(
+            'Uploading file to ImageKit:',
+            req.file.originalname,
+            req.file.mimetype,
+            req.file.size
+          );
           attachmentUrl = await handleFileUpload(req);
           console.log('File uploaded successfully to ImageKit:', attachmentUrl);
         } catch (uploadError) {
           console.error('Error uploading to ImageKit:', uploadError);
-          return res.status(500).json({ error: `Failed to upload document: ${uploadError.message}` });
+          return res
+            .status(500)
+            .json({ error: `Failed to upload document: ${uploadError.message}` });
         }
       }
 
@@ -93,9 +100,9 @@ exports.submitLeave = async (req, res) => {
           leaveType,
           startDate,
           endDate,
-          hasAttachment: !!attachmentUrl
+          hasAttachment: !!attachmentUrl,
         });
-        
+
         const leave = await prisma.leave.create({
           data: {
             userId,
@@ -103,8 +110,8 @@ exports.submitLeave = async (req, res) => {
             startDate: new Date(startDate),
             endDate: new Date(endDate),
             reason,
-            attachment: attachmentUrl
-          }
+            attachment: attachmentUrl,
+          },
         });
 
         console.log('Leave record created successfully:', leave.id);
@@ -126,7 +133,7 @@ exports.getUserLeaves = async (req, res) => {
     const userId = req.user.id;
     const leaves = await prisma.leave.findMany({
       where: { userId },
-      orderBy: { createdAt: 'desc' }
+      orderBy: { createdAt: 'desc' },
     });
     res.json(leaves);
   } catch (error) {
@@ -140,10 +147,10 @@ exports.getAllLeaves = async (req, res) => {
     const leaves = await prisma.leave.findMany({
       include: {
         user: {
-          select: { id: true, name: true, email: true }
-        }
+          select: { id: true, name: true, email: true },
+        },
       },
-      orderBy: { createdAt: 'desc' }
+      orderBy: { createdAt: 'desc' },
     });
     res.json(leaves);
   } catch (error) {
@@ -163,7 +170,7 @@ exports.updateLeaveStatus = async (req, res) => {
 
     const leave = await prisma.leave.update({
       where: { id: parseInt(id) },
-      data: { status }
+      data: { status },
     });
     res.json(leave);
   } catch (error) {

@@ -11,7 +11,7 @@ const { PromisePool } = require('@supercharge/promise-pool');
 const imagekit = new ImageKit({
   publicKey: process.env.IMAGEKIT_PUBLIC_KEY,
   privateKey: process.env.IMAGEKIT_PRIVATE_KEY,
-  urlEndpoint: process.env.IMAGEKIT_URL_ENDPOINT
+  urlEndpoint: process.env.IMAGEKIT_URL_ENDPOINT,
 });
 
 // Helper function to download file from URL
@@ -54,27 +54,26 @@ async function updateDatabaseReferences(oldUrl, newUrl) {
     // Update profile photos
     await prisma.salesRep.updateMany({
       where: { photoUrl: oldUrl },
-      data: { photoUrl: newUrl }
+      data: { photoUrl: newUrl },
     });
 
     // Update product images
     await prisma.product.updateMany({
       where: { image: oldUrl },
-      data: { image: newUrl }
+      data: { image: newUrl },
     });
 
     // Update leave documents
     await prisma.leaveApplication.updateMany({
       where: { attachmentUrl: oldUrl },
-      data: { attachmentUrl: newUrl }
+      data: { attachmentUrl: newUrl },
     });
 
     // Update order attachments
     await prisma.order.updateMany({
       where: { imageUrl: oldUrl },
-      data: { imageUrl: newUrl }
+      data: { imageUrl: newUrl },
     });
-
   } catch (error) {
     console.error('Error updating database references:', error);
     throw error;
@@ -88,7 +87,7 @@ async function migrateFiles() {
 
     // Get all files from ImageKit
     const files = await imagekit.listFiles({
-      limit: 1000 // Adjust based on your needs
+      limit: 1000, // Adjust based on your needs
     });
 
     console.log(`Found ${files.length} files to migrate.`);
@@ -98,32 +97,31 @@ async function migrateFiles() {
       total: files.length,
       width: 40,
       complete: '=',
-      incomplete: ' '
+      incomplete: ' ',
     });
 
     // Track migration results
     const results = {
       success: 0,
       failed: 0,
-      errors: []
+      errors: [],
     };
 
     // Process files in parallel with rate limiting
-    const { results: migrationResults } = await PromisePool
-      .for(files)
+    const { results: migrationResults } = await PromisePool.for(files)
       .withConcurrency(5)
       .process(async (file) => {
         try {
           // Download file from ImageKit
           const buffer = await downloadFile(file.url);
           const mimeType = getMimeType(file.name);
-          
+
           // Upload to Cloudinary
           const result = await uploadToCloudinary(buffer, {
             folder: file.filePath || 'whoosh/migrated',
             resource_type: getResourceType(mimeType),
             mimetype: mimeType,
-            public_id: path.parse(file.name).name
+            public_id: path.parse(file.name).name,
           });
 
           // Update database references if needed
@@ -134,7 +132,7 @@ async function migrateFiles() {
           results.failed++;
           results.errors.push({
             file: file.name,
-            error: error.message
+            error: error.message,
           });
         }
 
@@ -145,14 +143,13 @@ async function migrateFiles() {
     console.log('\nMigration completed!');
     console.log(`Successfully migrated: ${results.success} files`);
     console.log(`Failed to migrate: ${results.failed} files`);
-    
+
     if (results.errors.length > 0) {
       console.log('\nErrors encountered:');
       results.errors.forEach(({ file, error }) => {
         console.log(`- ${file}: ${error}`);
       });
     }
-
   } catch (error) {
     console.error('Migration failed:', error);
     process.exit(1);
@@ -167,4 +164,4 @@ if (require.main === module) {
       console.error('Migration failed:', error);
       process.exit(1);
     });
-} 
+}
