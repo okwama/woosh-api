@@ -292,119 +292,65 @@ const register = async (req, res) => {
   }
 };
 
+
 const login = async (req, res) => {
-  const startTime = Date.now();
   try {
     const { phoneNumber, password } = req.body;
 
-    // Rate limiting for login attempts
-    const ipKey = `ratelimit:login:${req.ip}`;
-    const phoneKey = `ratelimit:login:phone:${phoneNumber}`;
-
-    // Check both IP and phone number rate limits in parallel
-    const [ipAllowed, phoneAllowed] = await Promise.all([
-      checkRateLimit(ipKey, MAX_LOGIN_ATTEMPTS, LOGIN_RATE_LIMIT_WINDOW),
-      checkRateLimit(phoneKey, MAX_LOGIN_ATTEMPTS, LOGIN_RATE_LIMIT_WINDOW),
-    ]);
-
-    if (!ipAllowed || !phoneAllowed) {
-      return res.status(429).json({
+    // Basic validation
+    if (!phoneNumber || !password) {
+      return res.status(400).json({
         success: false,
-        message: 'Too many login attempts. Please try again later.',
+        message: 'Phone number and password are required'
       });
     }
 
-    // Find user and validate password
+    // Find user
     const salesRep = await prisma.salesRep.findFirst({
       where: { phoneNumber },
       include: { countryRelation: true },
     });
 
+    // Validate user exists and password matches
     if (!salesRep || !(await bcrypt.compare(password, salesRep.password))) {
-      tokenMonitoring.trackLoginAttempt(phoneNumber, false, Date.now() - startTime);
-      tokenMonitoring.trackError('loginFailures');
       return res.status(401).json({ 
         success: false, 
         message: 'Invalid phone number or password' 
       });
     }
 
-    // Use transaction with retry logic
-    const MAX_RETRIES = 3;
-    let retryCount = 0;
-    let result;
+    // Generate simple tokens
+    const accessToken = jwt.sign(
+      { userId: salesRep.id, role: salesRep.role, type: 'access' },
+      process.env.JWT_SECRET,
+      { expiresIn: '8h' }
+    );
 
-    while (retryCount < MAX_RETRIES) {
-      try {
-        result = await prisma.$transaction(async (tx) => {
-          // Clean up old tokens first
-          await cleanupTokens(salesRep.id, tx);
+    const refreshToken = jwt.sign(
+      { userId: salesRep.id, role: salesRep.role, type: 'refresh' },
+      process.env.JWT_SECRET,
+      { expiresIn: '7d' }
+    );
 
-          // Generate new tokens
-          const [accessToken, refreshToken] = await Promise.all([
-            jwt.sign(
-              { userId: salesRep.id, role: salesRep.role, type: 'access' },
-              process.env.JWT_SECRET,
-              { expiresIn: '8h' }
-            ),
-            jwt.sign(
-              { userId: salesRep.id, role: salesRep.role, type: 'refresh' },
-              process.env.JWT_SECRET,
-              { expiresIn: '7d' }
-            ),
-          ]);
-
-          // Invalidate old tokens and create new ones
-          await Promise.all([
-            invalidateUserTokens(salesRep.id, tx),
-            tx.token.createMany({
-              data: [
-                {
-                  token: accessToken,
-                  salesRepId: salesRep.id,
-                  tokenType: 'access',
-                  expiresAt: new Date(Date.now() + 8 * 60 * 60 * 1000),
-                },
-                {
-                  token: refreshToken,
-                  salesRepId: salesRep.id,
-                  tokenType: 'refresh',
-                  expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-                },
-              ],
-            }),
-          ]);
-
-          return { accessToken, refreshToken };
-        });
-        break;
-      } catch (error) {
-        retryCount++;
-        if (retryCount === MAX_RETRIES) {
-          tokenMonitoring.trackError('databaseErrors');
-          throw error;
-        }
-        await new Promise(resolve => setTimeout(resolve, 1000 * retryCount));
-      }
-    }
-
-    // Track successful login
-    tokenMonitoring.trackLoginAttempt(salesRep.id, true, Date.now() - startTime);
-
-    // Store tokens in Redis after successful DB transaction (non-blocking)
-    Promise.all([
-      storeTokenInRedis(salesRep.id, result.accessToken, 'access', 8 * 60 * 60),
-      storeTokenInRedis(salesRep.id, result.refreshToken, 'refresh', 7 * 24 * 60 * 60),
-    ]).catch(error => {
-      console.warn('Redis token storage failed during login:', error.message);
+    // Store tokens in database (simple, no cleanup)
+    await prisma.token.createMany({
+      data: [
+        {
+          token: accessToken,
+          salesRepId: salesRep.id,
+          tokenType: 'access',
+          expiresAt: new Date(Date.now() + 8 * 60 * 60 * 1000),
+        },
+        {
+          token: refreshToken,
+          salesRepId: salesRep.id,
+          tokenType: 'refresh',
+          expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+        },
+      ],
     });
 
-    // Reset rate limit counters on successful login (non-blocking)
-    Promise.all([
-      redisService.del(ipKey).catch(err => console.warn('Failed to reset IP rate limit:', err.message)),
-      redisService.del(phoneKey).catch(err => console.warn('Failed to reset phone rate limit:', err.message)),
-    ]).catch(() => {}); // Ignore any remaining errors
-
+    // Return success response
     res.json({
       success: true,
       salesRep: {
@@ -420,17 +366,16 @@ const login = async (req, res) => {
         countryId: salesRep.countryId,
         country: salesRep.countryRelation,
       },
-      accessToken: result.accessToken,
-      refreshToken: result.refreshToken,
+      accessToken,
+      refreshToken,
       expiresIn: 8 * 60 * 60,
-      metrics: tokenMonitoring.getUserMetrics(salesRep.id)
     });
+
   } catch (error) {
     console.error('Login error:', error);
-    tokenMonitoring.trackError('databaseErrors');
     res.status(500).json({
       success: false,
-      message: 'Internal server error',
+      message: 'Login failed',
       details: process.env.NODE_ENV === 'development' ? error.message : undefined,
     });
   }
@@ -768,6 +713,7 @@ const deleteAccount = async (req, res) => {
     res.status(500).json({ error: 'Failed to delete account', details: error.message });
   }
 };
+
 module.exports = {
   register,
   login,
