@@ -1,0 +1,48 @@
+# CodeRabbit Configuration
+version: 1
+
+# Review settings
+reviews:
+  # Request review for all pull requests
+  request_review: true
+  
+  # Notification settings
+  notifications:
+    # Notify when new review is available
+    new_review: true
+    
+  # Code analysis settings
+  analysis:
+    # Enable basic code quality checks
+    quality_checks: true
+    # Enable security vulnerability scanning
+    security_checks: true
+    
+  # Review comment settings
+  comments:
+    # Maximum number of comments per review
+    max_comments: 20
+    # Minimum confidence score for suggestions
+    min_confidence: 0.8
+    
+  # Language specific settings
+  languages:
+    javascript:
+      enabled: true
+      # Include specific file patterns
+      file_patterns:
+        - "**/*.js"
+        - "**/*.jsx"
+    typescript:
+      enabled: true
+      file_patterns:
+        - "**/*.ts"
+        - "**/*.tsx"
+
+  # Ignore patterns
+  ignore:
+    - "node_modules/**"
+    - "dist/**"
+    - "build/**"
+    - "**/*.test.js"
+    - "**/*.spec.js" 

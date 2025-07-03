@@ -12,4 +12,4 @@ router.get('/', getRoutes);
 // Get route by ID
 router.get('/:id', getRouteById);
 
-module.exports = router; 
+module.exports = router;

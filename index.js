@@ -7,17 +7,17 @@ const prisma = require('./lib/prisma');
 const cron = require('node-cron');
 const cleanupTokens = require('./scripts/cleanup-tokens');
 const { handleTokenRefresh } = require('./middleware/authMiddleware');
-const { 
-  getEmergencyModeStatus, 
+const {
+  getEmergencyModeStatus,
   getEmergencyUsageStats,
-  triggerEmergencyMode, 
-  disableEmergencyMode 
+  triggerEmergencyMode,
+  disableEmergencyMode,
 } = require('./middleware/authMiddleware');
-const { 
-  timeoutMiddleware, 
-  performanceMiddleware, 
-  healthCheck, 
-  rateLimitMiddleware 
+const {
+  timeoutMiddleware,
+  performanceMiddleware,
+  healthCheck,
+  rateLimitMiddleware,
 } = require('./middleware/resilienceMiddleware');
 const { checkDatabaseHealth } = require('./lib/connectionManager');
 
@@ -59,72 +59,86 @@ app.use(rateLimitMiddleware); // Rate limiting
 
 // Auto-logout Cron Job at midnight Africa/Nairobi time
 console.log('🔄 Setting up auto-logout cron job...');
-const logoutJob = cron.schedule('0 0 * * *', async () => {
-  const now = new Date();
-  console.log(`⏰ Running auto-logout job at ${now.toLocaleString('en-KE', { timeZone: 'Africa/Nairobi' })}`);
+const logoutJob = cron.schedule(
+  '0 0 * * *',
+  async () => {
+    const now = new Date();
+    console.log(
+      `⏰ Running auto-logout job at ${now.toLocaleString('en-KE', { timeZone: 'Africa/Nairobi' })}`
+    );
 
-  try {
-    // Use the enhanced token service for cleanup
-    const { tokenService } = require('./lib/tokenService');
-    
-    // Get all active users and blacklist their tokens
-    const activeUsers = await prisma.salesRep.findMany({
-      where: {
-        status: 'ACTIVE'
-      },
-      select: {
-        id: true
-      }
-    });
+    try {
+      // Use the enhanced token service for cleanup
+      const { tokenService } = require('./lib/tokenService');
 
-    let processedCount = 0;
-    
-    // Process users in smaller batches to prevent lock timeouts
-    const BATCH_SIZE = 10;
-    for (let i = 0; i < activeUsers.length; i += BATCH_SIZE) {
-      const userBatch = activeUsers.slice(i, i + BATCH_SIZE);
-      
-      // Process each user in the batch
-      for (const user of userBatch) {
-        try {
-          const result = await tokenService.blacklistTokens(user.id);
-          processedCount += result.count;
-        } catch (error) {
-          console.error(`Failed to blacklist tokens for user ${user.id}:`, error.message);
+      // Get all active users and blacklist their tokens
+      const activeUsers = await prisma.salesRep.findMany({
+        where: {
+          status: 'ACTIVE',
+        },
+        select: {
+          id: true,
+        },
+      });
+
+      let processedCount = 0;
+
+      // Process users in smaller batches to prevent lock timeouts
+      const BATCH_SIZE = 10;
+      for (let i = 0; i < activeUsers.length; i += BATCH_SIZE) {
+        const userBatch = activeUsers.slice(i, i + BATCH_SIZE);
+
+        // Process each user in the batch
+        for (const user of userBatch) {
+          try {
+            const result = await tokenService.blacklistTokens(user.id);
+            processedCount += result.count;
+          } catch (error) {
+            console.error(`Failed to blacklist tokens for user ${user.id}:`, error.message);
+          }
+        }
+
+        // Add delay between batches to prevent overwhelming the database
+        if (i + BATCH_SIZE < activeUsers.length) {
+          await new Promise((resolve) => setTimeout(resolve, 500));
         }
       }
-      
-      // Add delay between batches to prevent overwhelming the database
-      if (i + BATCH_SIZE < activeUsers.length) {
-        await new Promise(resolve => setTimeout(resolve, 500));
-      }
-    }
 
-    console.log(`✅ Successfully blacklisted tokens for ${processedCount} total tokens across ${activeUsers.length} users`);
-  } catch (err) {
-    console.error('❌ Error blacklisting tokens:', err);
+      console.log(
+        `✅ Successfully blacklisted tokens for ${processedCount} total tokens across ${activeUsers.length} users`
+      );
+    } catch (err) {
+      console.error('❌ Error blacklisting tokens:', err);
+    }
+  },
+  {
+    timezone: 'Africa/Nairobi',
   }
-}, {
-  timezone: 'Africa/Nairobi'
-});
+);
 
 // Token Cleanup Cron Job at 2 AM Africa/Nairobi time
 console.log('🧹 Setting up token cleanup cron job...');
 
-const tokenCleanupJob = cron.schedule('0 2 * * *', async () => {
-  const now = new Date();
-  console.log(`🧹 Running token cleanup job at ${now.toLocaleString('en-KE', { timeZone: 'Africa/Nairobi' })}`);
+const tokenCleanupJob = cron.schedule(
+  '0 2 * * *',
+  async () => {
+    const now = new Date();
+    console.log(
+      `🧹 Running token cleanup job at ${now.toLocaleString('en-KE', { timeZone: 'Africa/Nairobi' })}`
+    );
 
-  try {
-    const { tokenService } = require('./lib/tokenService');
-    const deletedCount = await tokenService.cleanupExpiredTokens(50); // Use smaller batch size
-    console.log(`✅ Token cleanup completed: ${deletedCount} expired tokens removed`);
-  } catch (error) {
-    console.error('❌ Token cleanup error:', error);
+    try {
+      const { tokenService } = require('./lib/tokenService');
+      const deletedCount = await tokenService.cleanupExpiredTokens(50); // Use smaller batch size
+      console.log(`✅ Token cleanup completed: ${deletedCount} expired tokens removed`);
+    } catch (error) {
+      console.error('❌ Token cleanup error:', error);
+    }
+  },
+  {
+    timezone: 'Africa/Nairobi',
   }
-}, {
-  timezone: 'Africa/Nairobi'
-});
+);
 
 // Debug job status
 console.log('✅ Auto-logout cron job has been set up');
@@ -150,12 +164,12 @@ app.get('/health/database', async (req, res) => {
     res.json({
       database: dbHealth,
       timestamp: new Date().toISOString(),
-      uptime: process.uptime()
+      uptime: process.uptime(),
     });
   } catch (error) {
     res.status(500).json({
       database: { status: 'error', message: error.message },
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
     });
   }
 });
@@ -166,7 +180,7 @@ app.get('/emergency/status', (req, res) => {
   res.json({
     emergency_mode: status,
     warning: 'Emergency mode bypasses all authentication - use only in critical situations',
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
   });
 });
 
@@ -174,17 +188,17 @@ app.get('/emergency/stats', (req, res) => {
   // Add basic protection - check for admin secret
   const adminSecret = req.headers['x-admin-secret'];
   if (adminSecret !== process.env.ADMIN_SECRET) {
-    return res.status(403).json({ 
+    return res.status(403).json({
       error: 'Unauthorized',
-      message: 'Admin secret required to view emergency stats'
+      message: 'Admin secret required to view emergency stats',
     });
   }
-  
+
   const stats = getEmergencyUsageStats();
   res.json({
     emergency_stats: stats,
     warning: '⚠️ Emergency mode usage statistics - monitor for security issues',
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
   });
 });
 
@@ -193,17 +207,17 @@ app.post('/emergency/trigger', (req, res) => {
   // Add basic protection - check for admin secret
   const adminSecret = req.headers['x-admin-secret'];
   if (adminSecret !== process.env.ADMIN_SECRET) {
-    return res.status(403).json({ 
+    return res.status(403).json({
       error: 'Unauthorized',
-      message: 'Admin secret required to trigger emergency mode'
+      message: 'Admin secret required to trigger emergency mode',
     });
   }
-  
+
   const result = triggerEmergencyMode();
   res.json({
     ...result,
     warning: '⚠️ Emergency mode activated - all requests will bypass authentication',
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
   });
 });
 
@@ -211,17 +225,17 @@ app.post('/emergency/disable', (req, res) => {
   // Add basic protection - check for admin secret
   const adminSecret = req.headers['x-admin-secret'];
   if (adminSecret !== process.env.ADMIN_SECRET) {
-    return res.status(403).json({ 
+    return res.status(403).json({
       error: 'Unauthorized',
-      message: 'Admin secret required to disable emergency mode'
+      message: 'Admin secret required to disable emergency mode',
     });
   }
-  
+
   const result = disableEmergencyMode();
   res.json({
     ...result,
     message: '✅ Emergency mode disabled - normal authentication restored',
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
   });
 });
 
@@ -269,12 +283,12 @@ const server = app.listen(PORT, '0.0.0.0', () => console.log(`🚀 Server runnin
 // Graceful Shutdown
 const gracefulShutdown = async () => {
   console.log('Shutting down server...');
-  
+
   // Close the server
   server.close(() => {
     console.log('Server closed');
   });
-  
+
   // Disconnect from the database
   try {
     await prisma.$disconnect();
@@ -282,7 +296,7 @@ const gracefulShutdown = async () => {
   } catch (error) {
     console.error('Error disconnecting from database:', error);
   }
-  
+
   // Exit the process
   process.exit(0);
 };

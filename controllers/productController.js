@@ -8,7 +8,7 @@ const { getCurrencyValue } = require('../lib/currencyUtils');
 const imagekit = new ImageKit({
   publicKey: process.env.IMAGEKIT_PUBLIC_KEY,
   privateKey: process.env.IMAGEKIT_PRIVATE_KEY,
-  urlEndpoint: process.env.IMAGEKIT_URL_ENDPOINT
+  urlEndpoint: process.env.IMAGEKIT_URL_ENDPOINT,
 });
 
 // Configure multer for image upload
@@ -40,13 +40,13 @@ const getUserId = (req) => {
 
 /**
  * Get products with stock filtering and country-specific overrides
- * 
+ *
  * This function implements a sophisticated product fetching system that:
  * 1. Filters products based on stock availability in user's country
  * 2. Applies country-specific currency filtering
  * 3. Handles price options with country-specific values
  * 4. Provides accurate pagination for filtered results
- * 
+ *
  * @param {Object} req - Express request object
  * @param {Object} res - Express response object
  * @returns {Object} JSON response with filtered products and pagination
@@ -61,18 +61,18 @@ const getProducts = async (req, res) => {
     // Get user country information for currency display and stock filtering
     const user = await prisma.salesRep.findUnique({
       where: { id: userId },
-      select: { 
+      select: {
         countryId: true,
         country: true,
-        name: true
-      }
+        name: true,
+      },
     });
 
     console.log(`[DEBUG] User info:`, {
       userId,
       countryId: user?.countryId,
       country: user?.country,
-      userName: user?.name
+      userName: user?.name,
     });
 
     if (!user) {
@@ -90,23 +90,23 @@ const getProducts = async (req, res) => {
       where: {
         storeQuantities: {
           some: {
-            quantity: { gt: 0 },           // Has stock
+            quantity: { gt: 0 }, // Has stock
             store: {
-              countryId: user.countryId,   // In user's country
-              status: 0                    // Active store
-            }
-          }
-        }
+              countryId: user.countryId, // In user's country
+              status: 0, // Active store
+            },
+          },
+        },
       },
       include: {
         client: true,
         orderItems: true,
         storeQuantities: {
           include: {
-            store: true
-          }
+            store: true,
+          },
         },
-        purchaseHistory: true
+        purchaseHistory: true,
       },
       orderBy: {
         name: 'asc',
@@ -115,16 +115,18 @@ const getProducts = async (req, res) => {
       take: parseInt(limit),
     });
 
-    console.log(`[DEBUG] Found ${products.length} products with stock in country ${user.countryId}`);
+    console.log(
+      `[DEBUG] Found ${products.length} products with stock in country ${user.countryId}`
+    );
 
     // 🔍 DEBUG: Let's also fetch ALL products to see what's being filtered out
     const allProducts = await prisma.product.findMany({
       include: {
         storeQuantities: {
           include: {
-            store: true
-          }
-        }
+            store: true,
+          },
+        },
       },
       orderBy: {
         name: 'asc',
@@ -134,150 +136,154 @@ const getProducts = async (req, res) => {
     });
 
     console.log(`[DEBUG] Total products in database: ${allProducts.length}`);
-    
+
     // Debug each product's stock situation
-    allProducts.forEach(product => {
-      const countryStores = product.storeQuantities.filter(sq => 
-        sq.store.countryId === user.countryId
+    allProducts.forEach((product) => {
+      const countryStores = product.storeQuantities.filter(
+        (sq) => sq.store.countryId === user.countryId
       );
-      const countryStoresWithStock = countryStores.filter(sq => 
-        sq.quantity > 0 && sq.store.status === 0
+      const countryStoresWithStock = countryStores.filter(
+        (sq) => sq.quantity > 0 && sq.store.status === 0
       );
-      
+
       console.log(`[DEBUG] Product ${product.id} (${product.name}):`, {
         productId: product.id,
         productName: product.name,
         totalStores: product.storeQuantities.length,
         countryStores: countryStores.length,
         countryStoresWithStock: countryStoresWithStock.length,
-        stockDetails: countryStores.map(sq => ({
+        stockDetails: countryStores.map((sq) => ({
           storeId: sq.storeId,
           storeName: sq.store.name,
           quantity: sq.quantity,
           countryId: sq.store.countryId,
           status: sq.store.status,
           isActive: sq.store.status === 0,
-          hasStock: sq.quantity > 0
-        }))
+          hasStock: sq.quantity > 0,
+        })),
       });
     });
 
     // Process each product to add price options and apply currency filtering
-    const productsWithPriceOptions = await Promise.all(products.map(async (product, index) => {
-      console.log(`[DEBUG] Processing product ${index + 1}/${products.length}:`, {
-        productId: product.id,
-        productName: product.name,
-        categoryId: product.category_id
-      });
-
-      // 📋 CATEGORY & PRICE OPTIONS: Fetch category with price options
-      let categoryWithPriceOptions = null;
-      try {
-        categoryWithPriceOptions = await prisma.category.findUnique({
-          where: { id: product.category_id },
-          include: {
-            priceOptions: true
-          }
-        });
-
-        console.log(`[DEBUG] Category lookup for product ${product.id}:`, {
+    const productsWithPriceOptions = await Promise.all(
+      products.map(async (product, index) => {
+        console.log(`[DEBUG] Processing product ${index + 1}/${products.length}:`, {
+          productId: product.id,
+          productName: product.name,
           categoryId: product.category_id,
-          categoryFound: !!categoryWithPriceOptions,
-          categoryName: categoryWithPriceOptions?.name,
-          priceOptionsCount: categoryWithPriceOptions?.priceOptions?.length || 0
         });
 
-        if (categoryWithPriceOptions?.priceOptions) {
-          console.log(`[DEBUG] Price options for category ${product.category_id}:`, 
-            categoryWithPriceOptions.priceOptions.map(po => ({
-              id: po.id,
-              option: po.option,
-              value: po.value,
-              value_tzs: po.value_tzs,
-              value_ngn: po.value_ngn
-            }))
-          );
+        // 📋 CATEGORY & PRICE OPTIONS: Fetch category with price options
+        let categoryWithPriceOptions = null;
+        try {
+          categoryWithPriceOptions = await prisma.category.findUnique({
+            where: { id: product.category_id },
+            include: {
+              priceOptions: true,
+            },
+          });
+
+          console.log(`[DEBUG] Category lookup for product ${product.id}:`, {
+            categoryId: product.category_id,
+            categoryFound: !!categoryWithPriceOptions,
+            categoryName: categoryWithPriceOptions?.name,
+            priceOptionsCount: categoryWithPriceOptions?.priceOptions?.length || 0,
+          });
+
+          if (categoryWithPriceOptions?.priceOptions) {
+            console.log(
+              `[DEBUG] Price options for category ${product.category_id}:`,
+              categoryWithPriceOptions.priceOptions.map((po) => ({
+                id: po.id,
+                option: po.option,
+                value: po.value,
+                value_tzs: po.value_tzs,
+                value_ngn: po.value_ngn,
+              }))
+            );
+          }
+        } catch (error) {
+          console.error(`[ERROR] Failed to fetch category for product ${product.id}:`, error);
+          categoryWithPriceOptions = null;
         }
-      } catch (error) {
-        console.error(`[ERROR] Failed to fetch category for product ${product.id}:`, error);
-        categoryWithPriceOptions = null;
-      }
 
-      // 🏪 STORE QUANTITIES FILTERING: Only show stores with stock in user's country
-      // This filters the already-fetched store quantities to only show relevant stores
-      const filteredStoreQuantities = product.storeQuantities.filter(sq => {
-        const store = sq.store;
-        const hasStock = sq.quantity > 0;                    // Has stock
-        const isUserCountry = store.countryId === user.countryId;  // In user's country
-        const isActive = store.status === 0;                 // Active store
-        
-        return hasStock && isUserCountry && isActive;
-      });
+        // 🏪 STORE QUANTITIES FILTERING: Only show stores with stock in user's country
+        // This filters the already-fetched store quantities to only show relevant stores
+        const filteredStoreQuantities = product.storeQuantities.filter((sq) => {
+          const store = sq.store;
+          const hasStock = sq.quantity > 0; // Has stock
+          const isUserCountry = store.countryId === user.countryId; // In user's country
+          const isActive = store.status === 0; // Active store
 
-      console.log(`[DEBUG] Filtered store quantities for product ${product.id}:`, {
-        originalCount: product.storeQuantities.length,
-        filteredCount: filteredStoreQuantities.length,
-        stores: filteredStoreQuantities.map(sq => ({
-          storeId: sq.storeId,
-          storeName: sq.store?.name,
-          quantity: sq.quantity,
-          countryId: sq.store.countryId
-        }))
-      });
-
-      // 💰 CURRENCY FILTERING: Apply country-specific currency conversion
-      // This converts product unit costs based on user's country
-      const originalUnitCost = product.unit_cost;
-      const filteredUnitCost = getCurrencyValue(product, user.countryId, 'product');
-      
-      console.log(`[DEBUG] Currency filtering for product ${product.id}:`, {
-        countryId: user.countryId,
-        originalUnitCost,
-        filteredUnitCost,
-        currencyType: 'product'
-      });
-
-      // 💰 PRICE OPTIONS CURRENCY FILTERING: Convert price option values
-      // This applies country-specific currency conversion to each price option
-      const filteredPriceOptions = categoryWithPriceOptions?.priceOptions.map(priceOption => {
-        const originalValue = priceOption.value;
-        const filteredValue = getCurrencyValue(priceOption, user.countryId, 'priceOption');
-        
-        console.log(`[DEBUG] Price option currency filtering:`, {
-          priceOptionId: priceOption.id,
-          option: priceOption.option,
-          originalValue,
-          filteredValue,
-          countryId: user.countryId,
-          currencyType: 'priceOption'
+          return hasStock && isUserCountry && isActive;
         });
 
-        return {
-          ...priceOption,
-          // Filter price option value based on country
-          value: filteredValue
+        console.log(`[DEBUG] Filtered store quantities for product ${product.id}:`, {
+          originalCount: product.storeQuantities.length,
+          filteredCount: filteredStoreQuantities.length,
+          stores: filteredStoreQuantities.map((sq) => ({
+            storeId: sq.storeId,
+            storeName: sq.store?.name,
+            quantity: sq.quantity,
+            countryId: sq.store.countryId,
+          })),
+        });
+
+        // 💰 CURRENCY FILTERING: Apply country-specific currency conversion
+        // This converts product unit costs based on user's country
+        const originalUnitCost = product.unit_cost;
+        const filteredUnitCost = getCurrencyValue(product, user.countryId, 'product');
+
+        console.log(`[DEBUG] Currency filtering for product ${product.id}:`, {
+          countryId: user.countryId,
+          originalUnitCost,
+          filteredUnitCost,
+          currencyType: 'product',
+        });
+
+        // 💰 PRICE OPTIONS CURRENCY FILTERING: Convert price option values
+        // This applies country-specific currency conversion to each price option
+        const filteredPriceOptions =
+          categoryWithPriceOptions?.priceOptions.map((priceOption) => {
+            const originalValue = priceOption.value;
+            const filteredValue = getCurrencyValue(priceOption, user.countryId, 'priceOption');
+
+            console.log(`[DEBUG] Price option currency filtering:`, {
+              priceOptionId: priceOption.id,
+              option: priceOption.option,
+              originalValue,
+              filteredValue,
+              countryId: user.countryId,
+              currencyType: 'priceOption',
+            });
+
+            return {
+              ...priceOption,
+              // Filter price option value based on country
+              value: filteredValue,
+            };
+          }) || [];
+
+        // 🎯 FINAL PRODUCT OBJECT: Combine all filtered data
+        const filteredProduct = {
+          ...product,
+          // Filter product unit cost based on country
+          unit_cost: filteredUnitCost,
+          priceOptions: filteredPriceOptions,
+          storeQuantities: filteredStoreQuantities, // Only stores with stock in user's country
         };
-      }) || [];
 
-      // 🎯 FINAL PRODUCT OBJECT: Combine all filtered data
-      const filteredProduct = {
-        ...product,
-        // Filter product unit cost based on country
-        unit_cost: filteredUnitCost,
-        priceOptions: filteredPriceOptions,
-        storeQuantities: filteredStoreQuantities  // Only stores with stock in user's country
-      };
+        console.log(`[DEBUG] Final product ${product.id} data:`, {
+          productId: filteredProduct.id,
+          productName: filteredProduct.name,
+          unitCost: filteredProduct.unit_cost,
+          priceOptionsCount: filteredProduct.priceOptions.length,
+          storeQuantitiesCount: filteredProduct.storeQuantities.length,
+        });
 
-      console.log(`[DEBUG] Final product ${product.id} data:`, {
-        productId: filteredProduct.id,
-        productName: filteredProduct.name,
-        unitCost: filteredProduct.unit_cost,
-        priceOptionsCount: filteredProduct.priceOptions.length,
-        storeQuantitiesCount: filteredProduct.storeQuantities.length
-      });
-
-      return filteredProduct;
-    }));
+        return filteredProduct;
+      })
+    );
 
     // 📊 PAGINATION: Get accurate total count for filtered products
     // This ensures pagination works correctly with stock filtering
@@ -288,11 +294,11 @@ const getProducts = async (req, res) => {
             quantity: { gt: 0 },
             store: {
               countryId: user.countryId,
-              status: 0
-            }
-          }
-        }
-      }
+              status: 0,
+            },
+          },
+        },
+      },
     });
 
     console.log(`[DEBUG] Final response summary:`, {
@@ -300,7 +306,7 @@ const getProducts = async (req, res) => {
       totalProductsWithStock,
       userCountryId: user.countryId,
       userCountry: user.country,
-      stockFilterApplied: true
+      stockFilterApplied: true,
     });
 
     // 🚀 RESPONSE: Return filtered products with accurate pagination
@@ -317,14 +323,14 @@ const getProducts = async (req, res) => {
     });
   } catch (error) {
     console.error('Error fetching products:', error);
-    
+
     if (error.message === 'User authentication required') {
       return res.status(401).json({ error: 'Authentication required' });
     }
-    
-    res.status(500).json({ 
+
+    res.status(500).json({
       error: 'Failed to fetch products',
-      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined,
     });
   }
 };
@@ -337,7 +343,7 @@ const handleImageUpload = async (req) => {
     const result = await imagekit.upload({
       file: req.file.buffer.toString('base64'),
       fileName: `product-${Date.now()}${path.extname(req.file.originalname)}`,
-      folder: '/products'
+      folder: '/products',
     });
     return result.url;
   } catch (error) {
@@ -389,56 +395,59 @@ const createProduct = async (req, res) => {
       }
 
       // Create the product atomically with image upload
-      const product = await prisma.$transaction(async (tx) => {
-        // Upload image if present
-        let imageUrl = null;
-        if (req.file) {
-          try {
-            imageUrl = await handleImageUpload(req);
-          } catch (error) {
-            throw new Error('Image upload failed');
+      const product = await prisma.$transaction(
+        async (tx) => {
+          // Upload image if present
+          let imageUrl = null;
+          if (req.file) {
+            try {
+              imageUrl = await handleImageUpload(req);
+            } catch (error) {
+              throw new Error('Image upload failed');
+            }
           }
-        }
 
-        // Create the product
-        return await tx.product.create({
-          data: {
-            name,
-            description,
-            category_id: parseInt(category_id),
-            category,
-            currentStock: parseInt(currentStock) || 0,
-            clientId: parseInt(clientId),
-            image: imageUrl,
-            unit_cost: parseFloat(unit_cost) || 0,
-            unit_cost_tzs: parseFloat(unit_cost_tzs) || 0,
-            unit_cost_ngn: parseFloat(unit_cost_ngn) || 0,
-          },
-          include: {
-            client: true,
-            orderItems: true,
-            storeQuantities: true,
-            purchase: true,
-            purchaseHistory: true
-          },
-        });
-      }, {
-        maxWait: 5000,
-        timeout: 10000
-      });
+          // Create the product
+          return await tx.product.create({
+            data: {
+              name,
+              description,
+              category_id: parseInt(category_id),
+              category,
+              currentStock: parseInt(currentStock) || 0,
+              clientId: parseInt(clientId),
+              image: imageUrl,
+              unit_cost: parseFloat(unit_cost) || 0,
+              unit_cost_tzs: parseFloat(unit_cost_tzs) || 0,
+              unit_cost_ngn: parseFloat(unit_cost_ngn) || 0,
+            },
+            include: {
+              client: true,
+              orderItems: true,
+              storeQuantities: true,
+              purchase: true,
+              purchaseHistory: true,
+            },
+          });
+        },
+        {
+          maxWait: 5000,
+          timeout: 10000,
+        }
+      );
 
       console.log('Product created successfully:', product);
       res.status(201).json(product);
     } catch (error) {
       console.error('Error creating product:', error);
-      
+
       if (error.message === 'User authentication required') {
         return res.status(401).json({ error: 'Authentication required' });
       }
-      
-      res.status(500).json({ 
+
+      res.status(500).json({
         error: 'Failed to create product',
-        details: process.env.NODE_ENV === 'development' ? error.message : undefined
+        details: process.env.NODE_ENV === 'development' ? error.message : undefined,
       });
     }
   });
@@ -453,7 +462,7 @@ const updateProduct = async (req, res) => {
     } else if (err) {
       return res.status(400).json({ error: err.message });
     }
-    
+
     try {
       const { id } = req.params;
       const {
@@ -506,7 +515,7 @@ const updateProduct = async (req, res) => {
           orderItems: true,
           storeQuantities: true,
           purchase: true,
-          purchaseHistory: true
+          purchaseHistory: true,
         },
       });
 
@@ -514,14 +523,14 @@ const updateProduct = async (req, res) => {
       res.json(product);
     } catch (error) {
       console.error('Error updating product:', error);
-      
+
       if (error.message === 'User authentication required') {
         return res.status(401).json({ error: 'Authentication required' });
       }
-      
-      res.status(500).json({ 
+
+      res.status(500).json({
         error: 'Failed to update product',
-        details: process.env.NODE_ENV === 'development' ? error.message : undefined
+        details: process.env.NODE_ENV === 'development' ? error.message : undefined,
       });
     }
   });
@@ -556,14 +565,14 @@ const deleteProduct = async (req, res) => {
     res.status(204).send();
   } catch (error) {
     console.error('Error deleting product:', error);
-    
+
     if (error.message === 'User authentication required') {
       return res.status(401).json({ error: 'Authentication required' });
     }
-    
-    res.status(500).json({ 
+
+    res.status(500).json({
       error: 'Failed to delete product',
-      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined,
     });
   }
 };
@@ -574,4 +583,4 @@ module.exports = {
   updateProduct,
   deleteProduct,
   getCurrencyValue,
-}; 
+};

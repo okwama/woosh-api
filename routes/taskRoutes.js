@@ -24,4 +24,4 @@ router.patch('/:taskId/status', taskController.updateTaskStatus);
 // Delete a task
 router.delete('/:taskId', taskController.deleteTask);
 
-module.exports = router; 
+module.exports = router;

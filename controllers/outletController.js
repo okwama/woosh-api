@@ -8,7 +8,7 @@ const { uploadFile } = require('../lib/uploadService');
 const imagekit = new ImageKit({
   publicKey: process.env.IMAGEKIT_PUBLIC_KEY,
   privateKey: process.env.IMAGEKIT_PRIVATE_KEY,
-  urlEndpoint: process.env.IMAGEKIT_URL_ENDPOINT
+  urlEndpoint: process.env.IMAGEKIT_URL_ENDPOINT,
 });
 
 // Configure multer for memory storage
@@ -24,7 +24,7 @@ const upload = multer({
     } else {
       cb(new Error(`Invalid file type: ${ext}. Only JPG, JPEG, PNG, and PDF files are allowed.`));
     }
-  }
+  },
 }).single('image');
 
 // Simple circuit breaker for outlet queries
@@ -64,7 +64,7 @@ class OutletCircuitBreaker {
   onFailure() {
     this.failureCount++;
     this.lastFailureTime = Date.now();
-    
+
     if (this.failureCount >= this.failureThreshold) {
       this.state = 'OPEN';
     }
@@ -82,15 +82,15 @@ const getOutlets = async (req, res) => {
 
     // Build the where clause
     const where = {
-      countryId: req.user.countryId,  // Add countryId filter here
-      status: 0  // Only fetch outlets with status 0
+      countryId: req.user.countryId, // Add countryId filter here
+      status: 0, // Only fetch outlets with status 0
     };
     if (route_id) {
       where.route_id = parseInt(route_id);
     }
     if (created_after) {
       where.created_at = {
-        gt: new Date(created_after)
+        gt: new Date(created_after),
       };
     }
 
@@ -122,8 +122,8 @@ const getOutlets = async (req, res) => {
         take: Math.min(Number(limit), 2000), // Enforce maximum limit and faster conversion
         orderBy: [
           { name: 'asc' }, // Primary sort
-          { id: 'asc' } // Secondary sort for consistent pagination
-        ]
+          { id: 'asc' }, // Secondary sort for consistent pagination
+        ],
       });
 
       const outlets = await Promise.race([outletsPromise, timeoutPromise]);
@@ -132,9 +132,9 @@ const getOutlets = async (req, res) => {
     });
 
     // Add default value for balance if it's null/undefined
-    const outletsWithDefaultBalance = result.outlets.map(outlet => ({
+    const outletsWithDefaultBalance = result.outlets.map((outlet) => ({
       ...outlet,
-      balance: String(outlet.balance ?? "0"),
+      balance: String(outlet.balance ?? '0'),
       created_at: outlet.created_at?.toISOString() ?? null,
     }));
 
@@ -145,18 +145,20 @@ const getOutlets = async (req, res) => {
         total: result.total,
         page: parseInt(page),
         limit: parseInt(limit),
-        totalPages: Math.ceil(result.total / parseInt(limit))
+        totalPages: Math.ceil(result.total / parseInt(limit)),
       });
     }
   } catch (error) {
     console.error('Error fetching outlets:', error);
-    
+
     // Check if response has already been sent
     if (!res.headersSent) {
       if (error.message === 'Database query timeout') {
         res.status(408).json({ error: 'Request timeout - too many outlets to fetch' });
       } else if (error.message.includes('Circuit breaker is OPEN')) {
-        res.status(503).json({ error: 'Service temporarily unavailable - too many outlet query failures' });
+        res
+          .status(503)
+          .json({ error: 'Service temporarily unavailable - too many outlet query failures' });
       } else {
         res.status(500).json({ error: 'Error fetching outlets' });
       }
@@ -164,22 +166,20 @@ const getOutlets = async (req, res) => {
   }
 };
 
-
 // Create a new outlet
 const createOutlet = async (req, res) => {
-  const { 
-    name, 
-    address, 
-    latitude, 
-    longitude, 
-    balance, 
-    email, 
+  const {
+    name,
+    address,
+    latitude,
+    longitude,
+    balance,
+    email,
     contact,
     region_id,
     region,
     client_type,
-    added_by
-
+    added_by,
   } = req.body;
 
   // Get route_id from authenticated user
@@ -190,42 +190,45 @@ const createOutlet = async (req, res) => {
   }
 
   try {
-    const newOutlet = await prisma.$transaction(async (tx) => {
-      // Create the outlet
-      const outlet = await tx.clients.create({
-        data: {
-          name,
-          address,
-          contact,
-          client_type: 1,
-          ...(balance !== undefined && { balance: balance.toString() }),
-          ...(email && { email }),
-          tax_pin: req.body.tax_pin || "0",
-          location: req.body.location || "Unknown",
-          latitude,
-          longitude,
-          countryId: req.user.countryId, // Get countryId from logged-in user
-          region_id: parseInt(region_id),
-          region: region || "Unknown",
-          route_id: route_id ? parseInt(route_id) : null,
-          route_id_update: route_id ? parseInt(route_id) : null,
-          route_name_update: req.user.route_name || "Unknown",
-          added_by: req.user.id,
-          created_at: new Date(),
-        },
-      });
+    const newOutlet = await prisma.$transaction(
+      async (tx) => {
+        // Create the outlet
+        const outlet = await tx.clients.create({
+          data: {
+            name,
+            address,
+            contact,
+            client_type: 1,
+            ...(balance !== undefined && { balance: balance.toString() }),
+            ...(email && { email }),
+            tax_pin: req.body.tax_pin || '0',
+            location: req.body.location || 'Unknown',
+            latitude,
+            longitude,
+            countryId: req.user.countryId, // Get countryId from logged-in user
+            region_id: parseInt(region_id),
+            region: region || 'Unknown',
+            route_id: route_id ? parseInt(route_id) : null,
+            route_id_update: route_id ? parseInt(route_id) : null,
+            route_name_update: req.user.route_name || 'Unknown',
+            added_by: req.user.id,
+            created_at: new Date(),
+          },
+        });
 
-      // If outlet was created successfully, you could update related records here
-      // For example, update route statistics, etc.
-      if (route_id) {
-        console.log(`Outlet ${outlet.id} assigned to route ${route_id}`);
+        // If outlet was created successfully, you could update related records here
+        // For example, update route statistics, etc.
+        if (route_id) {
+          console.log(`Outlet ${outlet.id} assigned to route ${route_id}`);
+        }
+
+        return outlet;
+      },
+      {
+        maxWait: 5000,
+        timeout: 10000,
       }
-
-      return outlet;
-    }, {
-      maxWait: 5000,
-      timeout: 10000
-    });
+    );
 
     res.status(201).json(newOutlet);
   } catch (error) {
@@ -233,7 +236,6 @@ const createOutlet = async (req, res) => {
     res.status(500).json({ error: 'Failed to create outlet' });
   }
 };
-
 
 // Update an outlet
 const updateOutlet = async (req, res) => {
@@ -243,7 +245,7 @@ const updateOutlet = async (req, res) => {
   try {
     // First get the current outlet data
     const currentOutlet = await prisma.clients.findUnique({
-      where: { id: parseInt(id) }
+      where: { id: parseInt(id) },
     });
 
     if (!currentOutlet) {
@@ -293,15 +295,15 @@ const updateOutletLocation = async (req, res) => {
 
   // Validate required fields
   if (latitude === undefined || longitude === undefined) {
-    return res.status(400).json({ 
-      error: 'Both latitude and longitude are required for location update' 
+    return res.status(400).json({
+      error: 'Both latitude and longitude are required for location update',
     });
   }
 
   try {
     // First check if outlet exists
     const outlet = await prisma.clients.findUnique({
-      where: { id: parseInt(id) }
+      where: { id: parseInt(id) },
     });
 
     if (!outlet) {
@@ -327,29 +329,29 @@ const updateOutletLocation = async (req, res) => {
 // Get products for a specific outlet
 const getOutletProducts = async (req, res) => {
   const { id } = req.params;
-  
+
   try {
     const outlet = await prisma.clients.findUnique({
       where: { id: parseInt(id) },
       include: {
         products: {
           include: {
-            product: true
-          }
-        }
-      }
+            product: true,
+          },
+        },
+      },
     });
-    
+
     if (!outlet) {
       return res.status(404).json({ error: 'Outlet not found' });
     }
-    
+
     // Format the response to return just the products
-    const products = outlet.products.map(op => ({
+    const products = outlet.products.map((op) => ({
       ...op.product,
-      quantity: op.quantity
+      quantity: op.quantity,
     }));
-    
+
     res.status(200).json(products);
   } catch (error) {
     console.error('Error fetching outlet products:', error);
@@ -360,7 +362,7 @@ const getOutletProducts = async (req, res) => {
 // Get outlet location
 const getOutletLocation = async (req, res) => {
   const { id } = req.params;
-  
+
   try {
     const outlet = await prisma.clients.findUnique({
       where: { id: parseInt(id) },
@@ -370,11 +372,11 @@ const getOutletLocation = async (req, res) => {
         longitude: true,
       },
     });
-    
+
     if (!outlet) {
       return res.status(404).json({ error: 'Outlet not found' });
     }
-    
+
     res.status(200).json(outlet);
   } catch (error) {
     console.error('Error fetching outlet location:', error);
@@ -397,41 +399,44 @@ const addClientPayment = async (req, res) => {
       }
 
       // Create payment atomically with image upload
-      const payment = await prisma.$transaction(async (tx) => {
-        let imageUrl = null;
-        let thumbnailUrl = null;
+      const payment = await prisma.$transaction(
+        async (tx) => {
+          let imageUrl = null;
+          let thumbnailUrl = null;
 
-        // Handle image upload first
-        if (req.file) {
-          try {
-            const result = await uploadFile(req.file, {
-              folder: 'whoosh/payments',
-              type: 'document',
-              generateThumbnail: true
-            });
-            imageUrl = result.main.url;
-            thumbnailUrl = result.thumbnail?.url;
-          } catch (error) {
-            throw new Error('Failed to upload payment document');
+          // Handle image upload first
+          if (req.file) {
+            try {
+              const result = await uploadFile(req.file, {
+                folder: 'whoosh/payments',
+                type: 'document',
+                generateThumbnail: true,
+              });
+              imageUrl = result.main.url;
+              thumbnailUrl = result.thumbnail?.url;
+            } catch (error) {
+              throw new Error('Failed to upload payment document');
+            }
           }
+
+          // Create the payment record
+          return await tx.clientPayment.create({
+            data: {
+              clientId: parseInt(clientId),
+              amount: parseFloat(amount),
+              paymentDate: new Date(paymentDate),
+              paymentType,
+              documentUrl: imageUrl,
+              thumbnailUrl: thumbnailUrl,
+              addedBy: req.user.id,
+            },
+          });
+        },
+        {
+          maxWait: 5000,
+          timeout: 10000,
         }
-
-        // Create the payment record
-        return await tx.clientPayment.create({
-          data: {
-            clientId: parseInt(clientId),
-            amount: parseFloat(amount),
-            paymentDate: new Date(paymentDate),
-            paymentType,
-            documentUrl: imageUrl,
-            thumbnailUrl: thumbnailUrl,
-            addedBy: req.user.id
-          }
-        });
-      }, {
-        maxWait: 5000,
-        timeout: 10000
-      });
+      );
 
       res.status(201).json(payment);
     } catch (error) {
@@ -447,7 +452,7 @@ const getClientPayments = async (req, res) => {
   try {
     const payments = await prisma.clientPayment.findMany({
       where: { clientId },
-      orderBy: { date: 'desc' }
+      orderBy: { date: 'desc' },
     });
     res.json(payments);
   } catch (error) {
@@ -463,5 +468,5 @@ module.exports = {
   getOutletLocation,
   addClientPayment,
   getClientPayments,
-  updateOutletLocation
+  updateOutletLocation,
 };
