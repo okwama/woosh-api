@@ -177,7 +177,7 @@ const recordLogin = async (req, res) => {
         shiftEnd: shiftEnd.toUTC().toJSDate(),
         isLate,
         isEarly: false,
-        status: isLate ? 'LATE' : 'ON_TIME',
+        status:1,
       },
       include: { user: true },
     });
