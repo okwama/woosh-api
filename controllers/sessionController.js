@@ -177,7 +177,7 @@ const recordLogin = async (req, res) => {
         shiftEnd: shiftEnd.toUTC().toJSDate(),
         isLate,
         isEarly: false,
-        status:1,
+        status: "1", // Changed to string "1" for login
       },
       include: { user: true },
     });
@@ -313,18 +313,10 @@ const recordLogout = async (req, res) => {
     const isOvertime = logoutTime > overtimeThreshold;
     const durationMinutes = Math.floor(logoutTime.diff(loginTime, 'minutes').minutes);
 
-    let status;
-    if (activeSession.status === 'LATE' && isEarly) {
-      status = 'LATE_EARLY';
-    } else if (activeSession.status === 'LATE') {
-      status = 'LATE_REGULAR';
-    } else if (isEarly) {
-      status = 'EARLY';
-    } else if (isOvertime) {
-      status = 'OVERTIME';
-    } else {
-      status = 'REGULAR';
-    }
+    // Status codes as strings:
+    // "1" = Login state
+    // "2" = Logout state
+    let status = "2"; // Always set to "2" for logout
 
     // Update session record
     const updatedSession = await prisma.loginHistory.update({
@@ -334,7 +326,7 @@ const recordLogout = async (req, res) => {
         sessionEnd: logoutTime.toFormat('yyyy-MM-dd HH:mm:ss'),
         isEarly,
         duration: durationMinutes,
-        status,
+        status, // Now using string "2" for logout
       },
     });
 
