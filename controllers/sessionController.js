@@ -438,17 +438,26 @@ const getSessionHistory = async (req, res) => {
         duration = `${durationMinutes < 0 ? '-' : ''}${hours}h ${mins}m`;
       }
 
+      // Calculate display status for backward compatibility
+      const displayStatus = 
+        session.status === '1'
+          ? 'Early'
+          : session.status === '2'
+            ? 'Overtime'
+            : session.isLate
+              ? 'Late'
+              : 'On Time';
+
       return {
         ...session,
         duration,
-        status:
-          session.status === '1'
-            ? 'Early'
-            : session.status === '2'
-              ? 'Overtime'
-              : session.isLate
-                ? 'Late'
-                : 'On Time',
+        // Keep raw status codes for frontend session management
+        status: session.status, // Raw status: "1" = active, "2" = ended
+        // Add display status for UI purposes (new field)
+        displayStatus: displayStatus,
+        // Backward compatibility: keep old status field for old app versions
+        // This ensures old apps still get display labels
+        statusLabel: displayStatus, // Legacy field for old app versions
         // Add these flags to help debug time sources
         _timeSource:
           session.sessionStart && session.sessionEnd
