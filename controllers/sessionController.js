@@ -177,7 +177,7 @@ const recordLogin = async (req, res) => {
         shiftEnd: shiftEnd.toUTC().toJSDate(),
         isLate,
         isEarly: false,
-        status: isLate ? 'LATE' : 'ON_TIME',
+        status: "1", // 1 = checked in
       },
       include: { user: true },
     });
@@ -313,18 +313,11 @@ const recordLogout = async (req, res) => {
     const isOvertime = logoutTime > overtimeThreshold;
     const durationMinutes = Math.floor(logoutTime.diff(loginTime, 'minutes').minutes);
 
-    let status;
-    if (activeSession.status === 'LATE' && isEarly) {
-      status = 'LATE_EARLY';
-    } else if (activeSession.status === 'LATE') {
-      status = 'LATE_REGULAR';
-    } else if (isEarly) {
-      status = 'EARLY';
-    } else if (isOvertime) {
-      status = 'OVERTIME';
-    } else {
-      status = 'REGULAR';
-    }
+    // Status codes:
+    // "0" = pending
+    // "1" = checked in
+    // "2" = checked out
+    let status = "2"; // Set to checked out on logout
 
     // Update session record
     const updatedSession = await prisma.loginHistory.update({
@@ -334,7 +327,7 @@ const recordLogout = async (req, res) => {
         sessionEnd: logoutTime.toFormat('yyyy-MM-dd HH:mm:ss'),
         isEarly,
         duration: durationMinutes,
-        status,
+        status: "2", // 2 = checked out
       },
     });
 
@@ -450,13 +443,13 @@ const getSessionHistory = async (req, res) => {
         ...session,
         duration,
         status:
-          session.status === '1'
-            ? 'Early'
-            : session.status === '2'
-              ? 'Overtime'
-              : session.isLate
-                ? 'Late'
-                : 'On Time',
+          session.status === '0'
+            ? 'Pending'
+            : session.status === '1'
+              ? 'Checked In'
+              : session.status === '2'
+                ? 'Checked Out'
+                : 'Pending',
         // Add these flags to help debug time sources
         _timeSource:
           session.sessionStart && session.sessionEnd
@@ -489,20 +482,14 @@ function formatDuration(minutes) {
 // Helper function to determine status label
 function determineStatus(session) {
   switch (session.status) {
+    case '0':
+      return 'Pending';
     case '1':
-      return 'Early';
+      return 'Checked In';
     case '2':
-      return 'Overtime';
-    case 'LATE':
-      return 'Late';
-    case 'EARLY':
-      return 'Early';
-    case 'ON_TIME':
-      return 'On Time';
+      return 'Checked Out';
     default:
-      if (session.isLate) return 'Late';
-      if (session.isEarly) return 'Early';
-      return 'On Time';
+      return 'Pending';
   }
 }
 

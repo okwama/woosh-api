@@ -61,7 +61,7 @@ model SalesRep {
   UpliftSale           UpliftSale[]
   visibilityReports    VisibilityReport[]
   leaves               Leave[]
-  Manager              Manager?
+  Manager              Manager[]
   Task                 Task[]
 
   @@index([status, role], map: "idx_status_role")
@@ -107,7 +107,7 @@ model Target {
 
 model Manager {
   id         Int              @id @default(autoincrement())
-  userId     Int              @unique
+  userId     Int
   department String?
   checkins   ManagerCheckin[]
   user       SalesRep         @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -756,6 +756,7 @@ model users {
   Expenses       Expenses[]
   company_assets company_assets[]
   documents      documents[]
+  leave_requests leave_requests[]
   Task           Task[]
 }
 
@@ -878,6 +879,7 @@ model account_update {
   staff_id         Int
   staff_name       String  @db.VarChar(100)
   notes            String  @db.Text
+  country_id       Int
 }
 
 model accounts {
@@ -1819,6 +1821,7 @@ model Expenses {
   expense_date    DateTime   @db.Date
   posted_by       Int
   notes           String?    @db.Text
+  country_id      Int
   posted_at       DateTime   @default(now()) @db.Timestamp(0)
   MyAccounts      MyAccounts @relation(fields: [expense_type_id], references: [id], onUpdate: Restrict, map: "Expenses_ibfk_1")
   users           users      @relation(fields: [posted_by], references: [id], onUpdate: Restrict, map: "Expenses_ibfk_2")
@@ -1828,13 +1831,14 @@ model Expenses {
 }
 
 model MyAccounts {
-  id             Int        @id @default(autoincrement())
-  account_name   String     @db.VarChar(100)
-  account_number String     @db.VarChar(20)
+  id             Int            @id @default(autoincrement())
+  account_name   String         @db.VarChar(100)
+  account_number String         @db.VarChar(20)
   account_type   Int
-  description    String?    @db.Text
-  created_at     DateTime   @default(now()) @db.Timestamp(0)
+  description    String?        @db.Text
+  created_at     DateTime       @default(now()) @db.Timestamp(0)
   Expenses       Expenses[]
+  InvoiceItems   InvoiceItems[]
 }
 
 model Pay {
@@ -1846,6 +1850,7 @@ model Pay {
   payment_date String  @db.VarChar(100)
   posted_by    Int
   notes        String  @db.Text
+  country_id   Int
 }
 
 model Payments {
@@ -1899,28 +1904,30 @@ model documents {
 }
 
 model outlet_accounts {
-  id     Int    @id @default(autoincrement())
-  name   String @db.VarChar(100)
-  status Int
-
+  id                      Int                       @id @default(autoincrement())
+  name                    String                    @db.VarChar(100)
+  status                  Int
   manager_outlet_accounts manager_outlet_accounts[]
 }
 
 model manager_outlet_accounts {
-  id                Int     @id @default(autoincrement())
+  id                Int              @id @default(autoincrement())
   outlet_account_id Int?
-  name              String  @db.VarChar(100)
-  image             String  @db.VarChar(255)
+  name              String           @db.VarChar(100)
+  image             String           @db.VarChar(255)
   status            Int
   client_id         Int
-  client            Clients @relation(fields: [client_id], references: [id])
-  phone             String  @db.VarChar(100)
-  email             String  @db.VarChar(100)
-  address           String  @db.VarChar(100)
+  phone             String           @db.VarChar(100)
+  email             String           @db.VarChar(100)
+  address           String           @db.VarChar(100)
   type              Int
-  country           String  @db.VarChar(100)
-  password          String  @db.VarChar(100)
+  country           String           @db.VarChar(100)
+  password          String           @db.VarChar(100)
+  client            Clients          @relation(fields: [client_id], references: [id])
   outlet_accounts   outlet_accounts? @relation(fields: [outlet_account_id], references: [id])
+
+  @@index([client_id], map: "manager_outlet_accounts_client_id_fkey")
+  @@index([outlet_account_id], map: "manager_outlet_accounts_outlet_account_id_fkey")
 }
 
 model outlet_categories {
@@ -1975,6 +1982,112 @@ model depreciation_entries {
   @@index([asset_id], map: "asset_id")
 }
 
+model InvoiceItems {
+  id          Int        @id @default(autoincrement())
+  invoice_id  Int
+  product_id  Int
+  quantity    Int
+  unit_price  Decimal    @db.Decimal(10, 2)
+  account_id  Int
+  description String?    @db.Text
+  Invoices    Invoices   @relation(fields: [invoice_id], references: [id], onUpdate: Restrict, map: "InvoiceItems_ibfk_1")
+  MyAccounts  MyAccounts @relation(fields: [account_id], references: [id], onUpdate: Restrict, map: "InvoiceItems_ibfk_3")
+
+  @@index([account_id], map: "account_id")
+  @@index([invoice_id], map: "invoice_id")
+  @@index([product_id], map: "product_id")
+}
+
+model Invoices {
+  id             Int              @id @default(autoincrement())
+  customer_id    Int
+  invoice_number String?          @unique(map: "invoice_number") @db.VarChar(20)
+  invoice_date   DateTime         @db.DateTime(0)
+  due_date       DateTime         @db.Date
+  status         Invoices_status? @default(Pending)
+  user_id        Int
+  notes          String?          @db.Text
+  created_at     DateTime         @default(now()) @db.Timestamp(0)
+  InvoiceItems   InvoiceItems[]
+
+  @@index([customer_id], map: "customer_id")
+}
+
+model employee_types {
+  id             Int              @id @default(autoincrement()) @db.TinyInt
+  name           String           @unique(map: "name") @db.VarChar(20)
+  description    String?          @db.VarChar(100)
+  leave_balances leave_balances[]
+  leave_requests leave_requests[]
+}
+
+model leave_balances {
+  id               Int            @id @default(autoincrement())
+  employee_type_id Int            @db.TinyInt
+  employee_id      Int
+  leave_type_id    Int
+  year             Int
+  accrued          Decimal?       @default(0.00) @db.Decimal(5, 2)
+  used             Decimal?       @default(0.00) @db.Decimal(5, 2)
+  carried_forward  Decimal?       @default(0.00) @db.Decimal(5, 2)
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @default(now())
+  employee_types   employee_types @relation(fields: [employee_type_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "fk_balance_employee_type")
+  leave_types      leave_types    @relation(fields: [leave_type_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "fk_leave_balance_type")
+
+  @@unique([employee_type_id, employee_id, leave_type_id, year], map: "uk_leave_balance")
+  @@index([leave_type_id], map: "fk_leave_balance_type")
+  @@index([employee_type_id, employee_id, year], map: "idx_leave_balance_year")
+}
+
+model leave_requests {
+  id               Int                    @id @default(autoincrement())
+  employee_type_id Int                    @db.TinyInt
+  employee_id      Int
+  leave_type_id    Int
+  start_date       DateTime               @db.Date
+  end_date         DateTime               @db.Date
+  is_half_day      Boolean?               @default(false)
+  reason           String?                @db.Text
+  status           leave_requests_status? @default(pending)
+  approved_by      Int?
+  attachment_url   String?                @db.Text
+  applied_at       DateTime               @default(now()) @db.Timestamp(0)
+  updated_at       DateTime               @default(now()) @db.Timestamp(0)
+  employee_types   employee_types         @relation(fields: [employee_type_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "fk_leave_employee_type")
+  users            users?                 @relation(fields: [approved_by], references: [id], onUpdate: Restrict, map: "fk_leave_request_approver")
+  leave_types      leave_types            @relation(fields: [leave_type_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "fk_leave_request_type")
+
+  @@index([approved_by], map: "fk_leave_request_approver")
+  @@index([leave_type_id], map: "fk_leave_request_type")
+  @@index([start_date, end_date], map: "idx_leave_date_range")
+  @@index([employee_type_id, employee_id], map: "idx_leave_employee")
+  @@index([status], map: "idx_leave_status")
+}
+
+model leave_types {
+  id                  Int              @id @default(autoincrement())
+  name                String           @unique(map: "name") @db.VarChar(50)
+  max_days_per_year   Decimal?         @db.Decimal(5, 2)
+  accrues             Boolean?         @default(false)
+  monthly_accrual     Decimal?         @default(0.00) @db.Decimal(5, 2)
+  requires_attachment Boolean?         @default(false)
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @default(now())
+  leave_balances      leave_balances[]
+  leave_requests      leave_requests[]
+}
+
+model manager {
+  id           Int    @id @default(autoincrement())
+  name         String @db.VarChar(100)
+  phone_number String @db.VarChar(20)
+  department   Int
+  region       Int
+  country      Int
+  status       Int
+}
+
 enum ReportType {
   PRODUCT_AVAILABILITY
   VISIBILITY_ACTIVITY
@@ -1989,4 +2102,17 @@ enum reports_g_type {
   PRODUCT_SAMPLE
   PRODUCT_RETURN
   FEEDBACK
+}
+
+enum Invoices_status {
+  Draft
+  Pending
+  Paid
+  Cancelled
+}
+
+enum leave_requests_status {
+  pending
+  approved
+  rejected
 }
