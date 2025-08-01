@@ -1,5 +1,5 @@
 const jwt = require('jsonwebtoken');
-const prisma = require('../lib/prisma');
+const { withPrisma, withTransaction } = require('../lib/prismaHelper');
 const { withConnectionRetry } = require('../lib/connectionManager');
 const { tokenService } = require('../lib/tokenService');
 const { redisService } = require('../lib/redisService');
@@ -105,37 +105,31 @@ const generateNewTokens = async (userId, role) => {
 
     // Store both tokens in database atomically
     const tokens = await retryOperation(async () => {
-      return await prisma.$transaction(
-        async (tx) => {
-          // Create access token
-          const accessToken = await tx.token.create({
-            data: {
-              token: newAccessToken,
-              salesRepId: userId,
-              tokenType: 'access',
-              expiresAt: new Date(Date.now() + 8 * 60 * 60 * 1000), // 8 hours
-              blacklisted: false,
-            },
-          });
+      return await withTransaction(async (tx) => {
+        // Create access token
+        const accessToken = await tx.token.create({
+          data: {
+            token: newAccessToken,
+            salesRepId: userId,
+            tokenType: 'access',
+            expiresAt: new Date(Date.now() + 8 * 60 * 60 * 1000), // 8 hours
+            blacklisted: false,
+          },
+        });
 
-          // Create refresh token
-          const refreshToken = await tx.token.create({
-            data: {
-              token: newRefreshToken,
-              salesRepId: userId,
-              tokenType: 'refresh',
-              expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
-              blacklisted: false,
-            },
-          });
+        // Create refresh token
+        const refreshToken = await tx.token.create({
+          data: {
+            token: newRefreshToken,
+            salesRepId: userId,
+            tokenType: 'refresh',
+            expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
+            blacklisted: false,
+          },
+        });
 
-          return { accessToken, refreshToken };
-        },
-        {
-          maxWait: 5000, // 5 second max wait for transaction
-          timeout: 10000, // 10 second timeout
-        }
-      );
+        return { accessToken, refreshToken };
+      }, 'generate_new_tokens_transaction');
     });
 
     return { newAccessToken, newRefreshToken };
@@ -434,13 +428,13 @@ const authenticateToken = async (req, res, next) => {
 
       try {
         // Get user details first
-        const user = await prisma.salesRep.findUnique({
+        const user = await withPrisma(async (prisma) => prisma.salesRep.findUnique({
           where: { id: decoded.userId },
           include: {
             Manager: true,
             countryRelation: true,
           },
-        });
+        }), 'authenticate_token_find_user');
 
         if (!user) {
           return res.status(401).json({ error: 'User not found' });
@@ -493,13 +487,13 @@ const authenticateToken = async (req, res, next) => {
           return await withGracefulDegradation(
             async () => {
               return await withConnectionRetry(async () => {
-                return await prisma.salesRep.findUnique({
+                return await withPrisma(async (prisma) => prisma.salesRep.findUnique({
                   where: { id: decoded.userId },
                   include: {
                     Manager: true,
                     countryRelation: true,
                   },
-                });
+                }), 'user_fetch_cache');
               }, 'user-fetch');
             },
             async () => {
@@ -561,38 +555,32 @@ const createUser = async (req, res) => {
 
   try {
     // Create user and manager atomically
-    const result = await prisma.$transaction(
-      async (tx) => {
-        // Create the user first
-        const user = await tx.salesRep.create({
+    const result = await withTransaction(async (tx) => {
+      // Create the user first
+      const user = await tx.salesRep.create({
+        data: {
+          name,
+          email,
+          phoneNumber,
+          password, // Ensure you hash the password before saving it
+          role,
+        },
+      });
+
+      // Create manager if role is manager
+      if (role === 'MANAGER') {
+        await tx.manager.create({
           data: {
-            name,
-            email,
-            phoneNumber,
-            password, // Ensure you hash the password before saving it
-            role,
+            userId: user.id,
+            email: managerDetails.email,
+            password: managerDetails.password,
+            department: managerDetails.department,
           },
         });
-
-        // Create manager if role is manager
-        if (role === 'MANAGER') {
-          await tx.manager.create({
-            data: {
-              userId: user.id,
-              email: managerDetails.email,
-              password: managerDetails.password,
-              department: managerDetails.department,
-            },
-          });
-        }
-
-        return user;
-      },
-      {
-        maxWait: 5000, // 5 second max wait
-        timeout: 10000, // 10 second timeout
       }
-    );
+
+      return user;
+    }, 'create_user_transaction');
 
     // Respond with the created user
     res.status(201).json(result);
