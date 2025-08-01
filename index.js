@@ -3,7 +3,7 @@ const express = require('express');
 const cors = require('cors');
 const morgan = require('morgan');
 const path = require('path');
-const prisma = require('./lib/prisma');
+const getPrisma = require('./lib/prisma');
 const cron = require('node-cron');
 const cleanupTokens = require('./scripts/cleanup-tokens');
 const { handleTokenRefresh } = require('./middleware/authMiddleware');
@@ -72,6 +72,7 @@ const logoutJob = cron.schedule(
       const { tokenService } = require('./lib/tokenService');
 
       // Get all active users and blacklist their tokens
+      const prisma = await getPrisma();
       const activeUsers = await prisma.salesRep.findMany({
         where: {
           status: 'ACTIVE',
@@ -291,6 +292,7 @@ const gracefulShutdown = async () => {
 
   // Disconnect from the database
   try {
+    const prisma = await getPrisma();
     await prisma.$disconnect();
     console.log('Database connection closed');
   } catch (error) {

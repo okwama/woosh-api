@@ -1,6 +1,6 @@
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
-const prisma = require('../lib/prisma');
+const { withPrisma, withTransaction } = require('../lib/prismaHelper');
 const { redisService } = require('../lib/redisService');
 const { tokenMonitoring } = require('../lib/monitoring');
 
@@ -171,8 +171,8 @@ const register = async (req, res) => {
 
     // Run parallel checks for existing user
     const [emailExists, phoneExists] = await Promise.all([
-      prisma.salesRep.findFirst({ where: { email } }),
-      prisma.salesRep.findFirst({ where: { phoneNumber } }),
+      withPrisma(async (prisma) => prisma.salesRep.findFirst({ where: { email } }), 'check_email_exists'),
+      withPrisma(async (prisma) => prisma.salesRep.findFirst({ where: { phoneNumber } }), 'check_phone_exists'),
     ]);
 
     if (emailExists || phoneExists) {
@@ -188,7 +188,7 @@ const register = async (req, res) => {
     const normalizedRole = role.toUpperCase();
 
     // Create user with transaction and parallel Redis operations
-    const result = await prisma.$transaction(async (tx) => {
+    const result = await withTransaction(async (tx) => {
       // Create the user
       const salesRep = await tx.salesRep.create({
         data: {
@@ -306,10 +306,10 @@ const login = async (req, res) => {
     }
 
     // Find user
-    const salesRep = await prisma.salesRep.findFirst({
+    const salesRep = await withPrisma(async (prisma) => prisma.salesRep.findFirst({
       where: { phoneNumber },
       include: { countryRelation: true },
-    });
+    }), 'login_find_user');
 
     // Validate user exists and password matches
     if (!salesRep || !(await bcrypt.compare(password, salesRep.password))) {
@@ -333,7 +333,7 @@ const login = async (req, res) => {
     );
 
     // Store tokens in database (simple, no cleanup)
-    await prisma.token.createMany({
+    await withPrisma(async (prisma) => prisma.token.createMany({
       data: [
         {
           token: accessToken,
@@ -348,7 +348,7 @@ const login = async (req, res) => {
           expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
         },
       ],
-    });
+    }), 'login_create_tokens');
 
     // Return success response
     res.json({
@@ -387,14 +387,14 @@ const logout = async (req, res) => {
     const token = req.token;
 
     // Priority 1: Always update database first (most important)
-    await prisma.token.updateMany({
+    await withPrisma(async (prisma) => prisma.token.updateMany({
       where: {
         salesRepId: userId,
         token,
         blacklisted: false,
       },
       data: { blacklisted: true },
-    });
+    }), 'logout_blacklist_token');
 
     // Priority 2: Redis cleanup (non-blocking fallback)
     Promise.all([
@@ -443,7 +443,7 @@ const refresh = async (req, res) => {
 
     while (retryCount < MAX_RETRIES) {
       try {
-        result = await prisma.$transaction(async (tx) => {
+        result = await withTransaction(async (tx) => {
           // Verify the refresh token
           const decoded = jwt.verify(refreshToken, process.env.JWT_SECRET);
 
