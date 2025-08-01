@@ -1,5 +1,5 @@
 const { DateTime } = require('luxon');
-const prisma = require('../lib/prisma');
+const { withPrisma, withTransaction } = require('../lib/prismaHelper');
 const cron = require('node-cron');
 // Constants for shift times
 const SHIFT_START_HOUR = 9; // 9 AM  for testing
@@ -24,7 +24,7 @@ const checkConsecutiveLateLogins = async (userId) => {
     const fourDaysAgo = new Date();
     fourDaysAgo.setDate(fourDaysAgo.getDate() - 4);
 
-    const recentLogins = await prisma.loginHistory.findMany({
+    const recentLogins = await withPrisma(async (prisma) => prisma.loginHistory.findMany({
       where: {
         userId: parseInt(userId),
         loginAt: {
@@ -34,7 +34,7 @@ const checkConsecutiveLateLogins = async (userId) => {
       orderBy: {
         loginAt: 'asc',
       },
-    });
+    }), 'check_consecutive_late_logins');
 
     // Group logins by day
     const loginsByDay = {};
@@ -63,19 +63,19 @@ const checkConsecutiveLateLogins = async (userId) => {
 
     // If 3 consecutive late days found, disable the account
     if (consecutiveLateDays >= 3) {
-      const user = await prisma.salesRep.findUnique({
+      const user = await withPrisma(async (prisma) => prisma.salesRep.findUnique({
         where: { id: parseInt(userId) },
-      });
+      }), 'find_user_for_consecutive_late');
 
       if (user) {
         // Update user status and disable account
-        await prisma.salesRep.update({
+        await withPrisma(async (prisma) => prisma.salesRep.update({
           where: { id: parseInt(userId) },
           data: {
             status: 4,
             role: 'DISABLED',
           },
-        });
+        }), 'update_user_status_disabled');
 
         return {
           updated: true,
@@ -167,7 +167,7 @@ const recordLogin = async (req, res) => {
     const isLate = userLoginTime > shiftStart.plus({ minutes: LATE_THRESHOLD_MINUTES });
 
     // Create database record
-    const loginRecord = await prisma.loginHistory.create({
+    const loginRecord = await withPrisma(async (prisma) => prisma.loginHistory.create({
       data: {
         userId: parseInt(userId),
         loginAt: userLoginTime.toUTC().toJSDate(),
@@ -177,14 +177,10 @@ const recordLogin = async (req, res) => {
         shiftEnd: shiftEnd.toUTC().toJSDate(),
         isLate,
         isEarly: false,
-<<<<<<< HEAD
         status: "1", // 1 = checked in
-=======
-        status: "1", // Changed to string "1" for login
->>>>>>> a9f309a482cbab6270ef410ddfeae672b847b6cd
       },
       include: { user: true },
-    });
+    }), 'record_login_create');
 
     console.log('✅ SESSION STARTED:', {
       userId,
@@ -228,11 +224,11 @@ const scheduleAutoLogout = () => {
 
       try {
         // Find all active sessions
-        const activeSessions = await prisma.loginHistory.findMany({
+        const activeSessions = await withPrisma(async (prisma) => prisma.loginHistory.findMany({
           where: {
             logoutAt: null,
           },
-        });
+        }), 'auto_logout_find_sessions');
 
         console.log(`[AUTO-LOGOUT] Found ${activeSessions.length} active sessions`);
 
@@ -279,12 +275,12 @@ const recordLogout = async (req, res) => {
     });
 
     // Find active session
-    const activeSession = await prisma.loginHistory.findFirst({
+    const activeSession = await withPrisma(async (prisma) => prisma.loginHistory.findFirst({
       where: {
         userId: parseInt(userId),
         logoutAt: null,
       },
-    });
+    }), 'record_logout_find_session');
 
     if (!activeSession) {
       console.log('❌ NO ACTIVE SESSION:', {
@@ -310,34 +306,23 @@ const recordLogout = async (req, res) => {
     const isOvertime = logoutTime > overtimeThreshold;
     const durationMinutes = Math.floor(logoutTime.diff(loginTime, 'minutes').minutes);
 
-<<<<<<< HEAD
     // Status codes:
     // "0" = pending
     // "1" = checked in
     // "2" = checked out
     let status = "2"; // Set to checked out on logout
-=======
-    // Status codes as strings:
-    // "1" = Login state
-    // "2" = Logout state
-    let status = "2"; // Always set to "2" for logout
->>>>>>> a9f309a482cbab6270ef410ddfeae672b847b6cd
 
     // Update session record
-    const updatedSession = await prisma.loginHistory.update({
+    const updatedSession = await withPrisma(async (prisma) => prisma.loginHistory.update({
       where: { id: activeSession.id },
       data: {
         logoutAt: logoutTime.toUTC().toJSDate(),
         sessionEnd: logoutTime.toFormat('yyyy-MM-dd HH:mm:ss'),
         isEarly,
         duration: durationMinutes,
-<<<<<<< HEAD
         status: "2", // 2 = checked out
-=======
-        status, // Now using string "2" for logout
->>>>>>> a9f309a482cbab6270ef410ddfeae672b847b6cd
       },
-    });
+    }), 'record_logout_update_session');
 
     console.log('✅ SESSION ENDED:', {
       userId,
@@ -372,8 +357,7 @@ const recordLogout = async (req, res) => {
   }
 };
 
-// // Get user's session history
-// const { DateTime } = require('luxon');
+// Get user's session history
 
 const getSessionHistory = async (req, res) => {
   try {
@@ -391,7 +375,7 @@ const getSessionHistory = async (req, res) => {
       };
     }
 
-    const sessions = await prisma.loginHistory.findMany({
+    const sessions = await withPrisma(async (prisma) => prisma.loginHistory.findMany({
       where: {
         userId: parseInt(userId),
         ...dateFilter,
@@ -399,7 +383,7 @@ const getSessionHistory = async (req, res) => {
       orderBy: {
         loginAt: 'desc',
       },
-    });
+    }), 'get_session_history');
 
     const formattedSessions = sessions.map((session) => {
       // Calculate duration using the most accurate available time fields
@@ -460,7 +444,6 @@ const getSessionHistory = async (req, res) => {
       return {
         ...session,
         duration,
-<<<<<<< HEAD
         status:
           session.status === '0'
             ? 'Pending'
@@ -469,15 +452,6 @@ const getSessionHistory = async (req, res) => {
               : session.status === '2'
                 ? 'Checked Out'
                 : 'Pending',
-=======
-        // Keep raw status codes for frontend session management
-        status: session.status, // Raw status: "1" = active, "2" = ended
-        // Add display status for UI purposes (new field)
-        displayStatus: displayStatus,
-        // Backward compatibility: keep old status field for old app versions
-        // This ensures old apps still get display labels
-        statusLabel: displayStatus, // Legacy field for old app versions
->>>>>>> a9f309a482cbab6270ef410ddfeae672b847b6cd
         // Add these flags to help debug time sources
         _timeSource:
           session.sessionStart && session.sessionEnd
