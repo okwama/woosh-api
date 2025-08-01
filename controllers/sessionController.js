@@ -2,7 +2,7 @@ const { DateTime } = require('luxon');
 const prisma = require('../lib/prisma');
 const cron = require('node-cron');
 // Constants for shift times
-const SHIFT_START_HOUR = 9; // Changed from 9 to 12 for testing
+const SHIFT_START_HOUR = 9; // 9 AM  for testing
 const SHIFT_START_MINUTE = 0;
 const SHIFT_END_HOUR = 18; // 6 PM
 const SHIFT_END_MINUTE = 0;
@@ -177,7 +177,11 @@ const recordLogin = async (req, res) => {
         shiftEnd: shiftEnd.toUTC().toJSDate(),
         isLate,
         isEarly: false,
+<<<<<<< HEAD
         status: "1", // 1 = checked in
+=======
+        status: "1", // Changed to string "1" for login
+>>>>>>> a9f309a482cbab6270ef410ddfeae672b847b6cd
       },
       include: { user: true },
     });
@@ -214,20 +218,13 @@ const recordLogin = async (req, res) => {
   }
 };
 
-// Schedule auto-logout at 6 PM every day
-// Using node-cron to schedule tasks
-// Ensure you have node-cron installed: npm install node-cron
-// Also ensure you have luxon installed: npm install luxon
-// Ensure you have prisma client set up correctly in your project
-// const cron = require('node-cron');
-
-// Simple auto-logout at 6 PM every day
+// Schedule auto-logout at 6:10 PM every day
 const scheduleAutoLogout = () => {
-  // Runs at 6:00 PM every day in Africa/Nairobi timezone
+  // Runs at 6:10 PM every day in Africa/Nairobi timezone
   cron.schedule(
-    '00 18 * * *',
+    '10 18 * * *',  // 6:10 PM daily
     async () => {
-      console.log('[AUTO-LOGOUT] Triggering at 6 PM');
+      console.log('[AUTO-LOGOUT] Triggering at 6:10 PM');
 
       try {
         // Find all active sessions
@@ -267,7 +264,7 @@ const scheduleAutoLogout = () => {
 
 // Initialize when your app starts
 scheduleAutoLogout();
-console.log('[SCHEDULER] Auto-logout set for 6 PM daily');
+console.log('[SCHEDULER] Auto-logout set for 6:10 PM daily');
 
 // Record user logout
 const recordLogout = async (req, res) => {
@@ -313,11 +310,18 @@ const recordLogout = async (req, res) => {
     const isOvertime = logoutTime > overtimeThreshold;
     const durationMinutes = Math.floor(logoutTime.diff(loginTime, 'minutes').minutes);
 
+<<<<<<< HEAD
     // Status codes:
     // "0" = pending
     // "1" = checked in
     // "2" = checked out
     let status = "2"; // Set to checked out on logout
+=======
+    // Status codes as strings:
+    // "1" = Login state
+    // "2" = Logout state
+    let status = "2"; // Always set to "2" for logout
+>>>>>>> a9f309a482cbab6270ef410ddfeae672b847b6cd
 
     // Update session record
     const updatedSession = await prisma.loginHistory.update({
@@ -327,7 +331,11 @@ const recordLogout = async (req, res) => {
         sessionEnd: logoutTime.toFormat('yyyy-MM-dd HH:mm:ss'),
         isEarly,
         duration: durationMinutes,
+<<<<<<< HEAD
         status: "2", // 2 = checked out
+=======
+        status, // Now using string "2" for logout
+>>>>>>> a9f309a482cbab6270ef410ddfeae672b847b6cd
       },
     });
 
@@ -439,9 +447,20 @@ const getSessionHistory = async (req, res) => {
         duration = `${durationMinutes < 0 ? '-' : ''}${hours}h ${mins}m`;
       }
 
+      // Calculate display status for backward compatibility
+      const displayStatus = 
+        session.status === '1'
+          ? 'Early'
+          : session.status === '2'
+            ? 'Overtime'
+            : session.isLate
+              ? 'Late'
+              : 'On Time';
+
       return {
         ...session,
         duration,
+<<<<<<< HEAD
         status:
           session.status === '0'
             ? 'Pending'
@@ -450,6 +469,15 @@ const getSessionHistory = async (req, res) => {
               : session.status === '2'
                 ? 'Checked Out'
                 : 'Pending',
+=======
+        // Keep raw status codes for frontend session management
+        status: session.status, // Raw status: "1" = active, "2" = ended
+        // Add display status for UI purposes (new field)
+        displayStatus: displayStatus,
+        // Backward compatibility: keep old status field for old app versions
+        // This ensures old apps still get display labels
+        statusLabel: displayStatus, // Legacy field for old app versions
+>>>>>>> a9f309a482cbab6270ef410ddfeae672b847b6cd
         // Add these flags to help debug time sources
         _timeSource:
           session.sessionStart && session.sessionEnd
